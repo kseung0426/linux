@@ -1,0 +1,541 @@
+리눅스 명령어 정리
+
+-사용자 추가
+sudo useradd -m xxxxx
+sudo passwd xxxxx
+
+-sudo 권한 주기
+sudo visudo
+추가
+xxxxx ALL=(ALL) NOPASSWD: ALL
+
+-/etc/shadow변경
+sudo vi /etc/shadow
+- xxxxx 아이디 찾아서
+xxxxx:$6$t18Twx2m$4HS40HpgtSI.eiE.u5TFcurElPlqy3DyxcYl3zZPS9zodAvOQzY7Gkh7GEWay55Hg6EDimd12MznevOEbP9OJ/:15446:0:30:7:::
+
+가장 뒤에 앞에 30을 99999로 변경
+
+-sudo 확인?
+sudo -v
+
+
+--java설치
+1. 자바 버전 확인
+$ java -version
+
+2. 이미 설치된 자바 삭제
+$ sudo apt remove openjdk-8-jdk
+//1.8버전 삭제
+
+3. 디렉토리 생성
+$ sudo mkdir -p /usr/local/java
+
+4. 압축풀기
+$ sudo tar xvf /usr/local/java/jdk-8u202-linux-x64.tar.gz
+(압축 풀어둔 폴더 복사)
+
+5. 환경설정 진행
+$ sudo vi /etc/profile
+
+//맨 아래 추가
+export JAVA_HOME=$(readlink -f /usr/local/java | sed "s:bin/java::")
+
+6. 자바 명령어 등록
+$ sudo update-alternatives --install "/usr/bin/java" "java" "/usr/local/java/jdk1.8.0_202/bin/java" 1;
+//$ sudo update-alternatives --install "/usr/bin/javac" "javac" "/usr/local/java/jdk1.8.0_202/bin/javac" 1;
+//$ sudo update-alternatives --install "/usr/bin/javaws" "javaws" "/usr/local/java/jdk1.8.0_202/bin/javaws" 1;
+
+$ sudo update-alternatives --set java /usr/local/java/jdk1.8.0_202/bin/java;
+//$ sudo update-alternatives --set javac /usr/local/java/jdk1.8.0_202/bin/javac;
+//$ sudo update-alternatives --set javaws /usr/local/java/jdk1.8.0_202/bin/javaws;
+
+//작업 후 적용이 안되면
+
+설치된 자바버전 확인
+$ update-alternatives --list java
+
+자바버전 선택
+$ update-alternatives --config java
+
+
+--mysql 설치
+wget  https://downloads.mysql.com/archives/get/p/23/file/mysql-5.7.28-1.el7.x86_64.rpm-bundle.tar
+tar -xvf mysql-5.7.28-1.el7.x86_64.rpm-bundle.tar 
+sudo yum localinstall mysql-community-*
+
+-mysql 설정
+sudo vi /etc/my.cnf
+아래 내용 추가
+
+[client]
+default-character-set = utf8
+
+[mysqld]
+character-set-client-handshake=FALSE
+init_connect="SET collation_connection = utf8_general_ci"
+init_connect="SET NAMES utf8"
+character-set-server = utf8
+collation-server = utf8_general_ci
+sql-mode="STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION"
+skip_ssl
+max_connections = 300
+
+[mysqldump]
+default-character-set = utf8
+
+[mysql]
+default-character-set = utf8
+
+-mysql 구동 확인
+sudo systemctl start mysqld 
+sudo systemctl status mysqld
+
+-root 패스워드 변경
+sudo systemctl stop mysqld
+
+-서비스 내린 후 무제약 모드
+sudo systemctl set-environment MYSQLD_OPTS="--skip-grant-tables"
+sudo systemctl start mysqld
+
+mysql -u root
+flush privileges;
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'root';
+flush privileges; 
+exit
+
+설정 완료 후 모드변경
+sudo systemctl stop mysqld 
+sudo systemctl unset-environment MYSQLD_OPTS 
+sudo systemctl start mysqld
+
+-사용자 추가 시 패스워드 에러
+ERROR 1819 (HY000): Your password does not satisfy the current policy requirements
+
+mysql> show variables like 'validate_password%';
+validate_password_policy             | MEDIUM | 변경해줘야함
+mysql> set global validate_password_policy=LOW;
+mysql> show variables like 'validate_password%';
+
+sudo chmod -R 755 /var/lib/mysql
+
+-data 저장 위치 변경
+sudo yum install rsync
+
+설정파일 datadir, socket 변경
+sudo vi /etc/my.cnf
+
+#datadir=/var/lib/mysql
+datadir=/data001/mysql_db
+#socket=/var/lib/mysql/mysql.sock
+socket=/data001/mysql_db/mysql.sock
+
+//기존 파일 변경 위치로 복사 
+sudo rsync -av /var/lib/mysql /data001/mysql_db/
+
+기존 파일 백업
+mv /var/lib/mysql /var/lib/mysql.back 
+
+원래 위치에 링크연결
+sudo ln -sf /data001/mysql_db /var/lib/mysql
+sudo chown -R mysql:mysql mysql
+
+//SELinux 권한 설정 /////////////////(권한 에러 발생으로 생략)
+//sudo semanage fcontext -a -t mysqld_db_t "/data001/mysql_db(/.*)?"
+//sudo restorecon -R /data001/mysql_db
+
+에러 log위치
+sudo vi /var/log/mysqld.log
+
+selinux 변경
+기동 시 [ERROR] InnoDB: os_file_get_status() failed on './ibdata1'. Can't determine file permissions 오류가 난다면 실행
+sudo setenforce 0
+
+//위 dir변경 후 에러
+아래 디렉토리 생성
+sudo mkdir /var/run/mysqld
+sudo chown mysql:mysql /var/run/mysqld
+
+//mysql삭제 방법
+-설치 확인
+yum list installed | grep mysql
+sudo yum remove -y mysql-community-*
+sudo rm -rf /var/lib/mysql
+rpm -qa | grep mysql
+rpm -e mysql57-community-release
+
+
+--git 설치
+
+sudo yum groupinstall "Development Tools"
+sudo yum install curl-devel expat-devel gettext-devel openssl-devel  perl-CPAN perl-devel zlib-devel
+
+-다운로드 받은 파일 이동 및 압축풀기
+cd /tmp
+tar xvf git-2.18.0.tar.gz
+cd git-2.18.0/
+
+sudo make prefix=/usr/local all
+sudo make prefix=/usr/local install
+
+-git 설치 확인 및 구성
+git --version
+
+git config --global user.name "xxxxx"
+git config --global user.email "xxxxx@xxx.com"
+
+git config --list
+
+-구성 설정 아래 파일에 저장
+~/.gitconfig
+
+-최신 버전 upgrade
+sudo wget  https://github.com/git/git/archive/v2.38.1.tar.gz -O git.tar.gz
+sudo tar -xf git.tar.gz
+cd git-*
+
+sudo make prefix=/usr/local all
+sudo make prefix=/usr/local install
+
+git --version
+
+
+--python설치
+
+sudo yum update
+
+sudo yum install openssl-devel bzip2-devel libffi-devel
+sudo yum groupinstall "Development Tools"
+
+sudo wget  https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tar.xz
+
+tar -xvf Python-3.11.0.tar.xz
+cd Python-3.11.0
+
+./configure --enable-optimizations
+sudo make altinstall
+
+python3.11 -V
+
+
+--replication구성
+
+gerrit에 key 등록
+
+replication 서버에서 mysql 잘붙는지 확인하려면
+
+mysql -h12.345.678.000(master서버 ip) -uxxxxx -pxxxxx
+
+ssh -p 29418 xxxxx replication start --all
+
+cd ~
+pwd /xxx/xxxx
+chmod g-w /xxx/xxxx
+chmod 700 /xxx/xxxx/.ssh
+chmod 600 /xxx/xxxx/.ssh/authorized_keys
+
+
+--다른 서버에서 복사하기
+scp -r 리모트서버계정@리모트서버아이피:경로 타겟서버경로
+sudo time rsync -avzuh 리모트서버계정@리모트서버아이피:경로 타겟서버경로
+
+
+--gerrit install
+
+1. ssh 및 port번호 설정
+
+- 사용할 port가 사용중인지 확인
+$ netstat -nap | grep xxxx
+
+
+2. Git DB 폴더 생성
+
+/xxx/xxxx
+
+
+3. mysql user 생성 (ex : test_xxxx)
+
+$ mysql -u root -proot
+mysql> CREATE USER 'test_xxxx'@'localhost' IDENTIFIED BY 'test_xxxx';
+Query OK, 0 rows affected (0.00 sec)
+mysql> use mysql;
+
+mysql> CREATE DATABASE testdb_xxxx;
+Query OK, 1 row affected (0.00 sec)
+mysql> ALTER DATABASE testdb_xxxx charset=utf8;
+Query OK, 1 row affected (0.00 sec)
+mysql> GRANT ALL ON testdb_xxxx.* TO 'test_xxxx'@'localhost';
+Query OK, 0 rows affected (0.00 sec)
+mysql> FLUSH PRIVILEGES;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> exit
+
+- mysql 덤프만들기
+mysqldump -u root -p testdb > /xxxx/testdb_1.sql
+
+- 덤프 DB 를 생성한 DB로 restore
+mysql -u root -p testdb < /xxxx/testdb_1.sql
+
+//사용자 목록 조회
+select user, host from user;
+
+
+4. gerrit 설치
+
+java -jar /xxxxx/gerrit-2.16.9.war init -d /xxxxx/gerrit
+
+Create '/xxxxx/gerrit' [Y/n]? 
+
+*** Git Repositories
+***
+
+Location of Git repositories [git]: /xxxxx/git_db
+
+*** SQL Database
+***
+
+Database server type [h2]: mysql
+
+Gerrit Code Review is not shipped with MySQL Connector/J 5.1.21
+** This library is required for your configuration. **
+Download and install it now [Y/n]? 
+Downloading  http://repo2.maven.org/maven2/mysql/mysql-connector-java/5.1.21/mysql-connector-java-5.1.21.jar ... OK
+Checksum mysql-connector-java-5.1.21.jar OK
+Server hostname [localhost]: 
+Server port [(mysql default)]: 
+Database name [reviewdb]: testdb_xxxx
+Database username [gerrit]: test_xxxx
+gerrit's password : test_xxxx
+confirm password : test_xxxx
+
+*** Index
+***
+
+Type [LUCENE/?]:
+
+*** User Authentication
+***
+
+//////////gerrit.config 파일에서 설정
+
+*** SSH Daemon
+***
+
+Listen on address [*]:
+Listen on port [29418]: “Input Project SSH Port”     //29418 이미 사용중
+
+Gerrit Code Review is not shipped with Bouncy Castle Crypto SSL v151
+If available, Gerrit can take advantage of features
+in the library, but will also function without it.
+Download and install it now [Y/n]? 
+Downloading  http://www.bouncycastle.org/download/bcpkix-jdk15on-151.jar ... OK
+Checksum bcpkix-jdk15on-151.jar OK
+
+Gerrit Code Review is not shipped with Bouncy Castle Crypto Provider v151
+** This library is required by Bouncy Castle Crypto SSL v151. **
+Download and install it now [Y/n]? 
+Downloading  http://www.bouncycastle.org/download/bcprov-jdk15on-151.jar ... OK
+Checksum bcprov-jdk15on-151.jar OK
+Generating SSH host key ... rsa... dsa... done
+
+*** HTTP Daemon
+***
+
+Behind reverse proxy [y/N]? 
+Use SSL (https://) [y/N]? 
+Listen on address [*]:
+Listen on port [8080]: “Input Project Web Port”
+Canonical URL [http://test:8777/]: 
+
+//재설치 진행
+
+java -jar /xxxxx/gerrit-2.16.9.war init -d /xxxxx/gerrit
+
+$ gerrit.sh run
+
+//실행시 발생 에러 확인 
+
+
+5. rewrite 설정
+
+ubuntu
+cd /etc/apache2/mods-enabled
+
+Rocky Linux
+vi /etc/httpd/conf/httpd.conf
+
+gerrit_xxxx.conf 파일 설정 후
+
+sudo /etc/init.d/apache2 restart
+
+
+6. plugin 설치
+
+gitiles.jar
+delete-project.jar
+reviewnotes
+find-owners 설치 시
+ gerrit.config 수정, All-Projects  project.config 수정 및 rules.pl 추가
+
+
+//요청시 진행
+7. replication 구성
+
+- replication 서버 SSH Public Keys를 gerrit에 등록
+1) local directory 에서 공개키를 생성합니다. 
+    $ ssh-keygen -t rsa
+    $ cat ~/.ssh/id_rsa.pub
+2) 공개키 등록
+ log on to gerrit site : gerrit.com/test
+ Setting > SSH Public keys > Add SSH Public Key > Paste your public key > Add 
+3) Public Key Check 
+  $ ssh -p 29419 gerrit.com
+  ( "XXXX closed." is OK result.) 
+
+
+java -jar /xxxxx/gerrit-2.16.9.war init -d /xxxxx/gerrit_replication
+
+java -jar /xxxxx/gerrit-2.16.9.war reindex -d /xxxxx/gerrit_replication --threads 32
+
+- 설치 진행 시 에러발생
+fatal:   caused by java.sql.SQLException: Access denied for user 'test_xxxx'@'12.345.678.000' (using password: NO)
+
+1) master 서버 mysql 접속 -> mysql -u root -p root
+
+mysql> use mysql;
+mysql> select user, host from user;
+mysql> GRANT ALL PRIVILEGES ON *.* TO 'test_xxxx'@'12.345.678.000';
+
+GRANT ALL PRIVILEGES ON *.* TO 'test_xxxx'@'localhost' IDENTIFIED BY 'test_xxxx' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO 'test_xxxx'@'%' IDENTIFIED BY 'test_xxxx' WITH GRANT OPTION;
+
+- 설치 후 reindex 에러 발생
+ERROR com.google.gerrit.server.index.group.AllGroupsIndexer : Error collecting groups
+org.eclipse.jgit.errors.RepositoryNotFoundException: repository not found: Cannot open repository All-Users
+
+1) master 서버 git_db 폴더 복사하기 //이거 안해도됨
+
+- reindex 발생 2번째
+fatal: invalid index name(s): [projects] available indices are: [groups]
+
+java -jar /xxxxx/gerrit-2.16.9.war reindex --index projects -d /xxxxx/gerrit_xxxx --threads 32
+
+java -jar /xxxxx/gerrit-2.16.9.war reindex --index groups -d /xxxxx/gerrit_xxxx --threads 32
+
+
+master 서버 plugin 파일 복사
+
+
+replication.config 설정
+
+crontab 설정
+
+
+///////////////////////repo-git/repo tags 및 branch 설정 요청시 폴더 복사하면 됨
+
+- replication gerrit tags 이슈
+
+/original
+$git clone ssh://xxxxx:29418/repo/git-repo.git
+$cd git-repo
+$git describe --tags
+v1.13.2-10-g266f74c
+
+/test
+$git clone ssh://xxxxx:29422/repo/git-repo.git
+$cd git-repo
+$git describe --tags
+fatal: No names found, cannot describe anything.
+
+1) original tag를 test에 psuh
+$ git clone ssh://xxxxx:29418/repo/git-repo.git
+$ cd git-repo
+$ git push ssh://xxxxx:29422/repo/git-repo.git --tags
+
+prohibited by Gerrit: not permitted: forge committer
+
+1) 해당 gerrit project에 들어가 access 추가
+push 관련 이슈기 때문에 
+Reference:refs/tags/* 에 Forge Committer Identity 권한 추가
+
+- gerrit tag이슈
+//project 생성시 initial empty commit 해제
+test랑 동일 하게 project 권한 설정
+
+gpg-keys 설정 이슈
+//gerrit.config에서 receive.enableSignedPush 설정 확인
+
+추가로 general 들어가서 Enable signed push: false 
+                  Require signed push: false
+//여긴 안되면 설정 test                  
+access -> Reference:refs/heads/*
+           Create Reference/push 에 user/test_xxxx (test_xxxx) 추가                  
+          Reference:refs/tags/*
+           Create Reference 에 user/test_xxxx (test_xxxx) 추가
+push 명령어
+//위에 명령어 에러 발생시 아래 명령어
+$ git push ssh://test_xxxx@xxxxx:29421/repo/git-repo.git refs/heads/* refs/tags/* --tags
+$ git push ssh://xxxxx:29421/repo/git-repo.git refs/heads/* refs/tags/* --tags
+
+
+1) replicaion 구성 완료 후 실행
+$ ssh -p 29422 xxxxx replication start --all
+       (해당gerrit)
+
+
+/////////////3.5 버전 설치
+java 11 기본
+
+1. openjdk11 다운받아 압축고 폴더 이동
+/xxxxx/jdk-11
+
+2. jre11 설치
+$ sudo apt update
+$ sudo apt install openjdk-11-jre
+
+//오류 발생시
+$ sudo add-apt-repository ppa:openjdk-r/ppa
+입력 후 위 update 다시 진행
+
+3. 설치 진행
+/xxxxx/jdk-11/bin/java -jar /xxxxx/gerrit-3.5.0.1.war init -d /xxxxx/gerrit_xxxx
+
+4 .index 진행
+/xxxxx/jdk-11/bin/java -jar /xxxxx/gerrit-3.5.0.1.war reindex --index changes -d /xxxxx/gerrit_xxxx
+
+5. gerrit.config 수정
+[container]
+ javaHome = /usr/lib/jvm/java-11-openjdk-amd64
+
+//
+https://gerrit-documentation.storage.googleapis.com/Documentation/3.0.0/note-db.html#migration
+
+
+//////gerrit DB migration v2.16.9 > v3.5.0.1
+
+
+1. v2.16.9 설치
+$ java -jar /xxxxx/gerrit-2.16.9.war init -d /xxxxx/test_gerrit
+설치중 note-db 관련 설정 y
+$ java -jar /xxxxx/gerrit-2.16.9.war reindex -d /xxxxx/test_gerrit --threads 32
+
+2. db migration 진행
+$ java -jar /xxxxx/gerrit-2.16.9.war migrate-to-note-db -d /xxxxx/test_gerrit
+etc/notedb.config 파일 있어야됨
+[noteDb "changes"]
+        autoMigrate = false
+        trial = false
+        write = true
+        read = true
+        sequence = true
+        primaryStorage = note db
+        disableReviewDb = true
+
+3. v.3.5.0.1 설치중
+$ /xxxxx/jdk-11/bin/java -jar /xxxxx/gerrit-3.5.0.1.war init -d /xxxxx/test_gerrit
+$ /xxxxx/jdk-11/bin/java -jar /xxxxx/gerrit-3.5.0.1.war reindex -d /xxxxx/test_gerrit
+
+//
+https://chowdera.com/2021/03/20210326190017819e.html
+https://all4dich.wordpress.com/2020/02/12/upgrade-gerrit-from-2-16-to-3-1-2/

@@ -1,0 +1,117 @@
+////////////jenkins 2.332.2 update
+
+1. 2.332.2 war 파일 다운로드
+
+2. openJDK 설치 확인
+
+3. war파일 tomcat -> webapps 디렉터리로 이동
+
+4. webapps 안에 web.xml 파일 수정
+   <env-entry>
+    <env-entry-name>HUDSON_HOME</env-entry-name>
+    <env-entry-type>java.lang.String</env-entry-type>
+    <env-entry-value>/data001/jenkins-ci/data</env-entry-value>
+
+   //위 방법 적용안되서 추가
+   tomcat/bin/catalina.sh 파일 수정
+   export JENKINS_HOME=/data001/jenkins-ci/data/
+   # OS specific support.  $var _must_ be set to either true or false.
+   
+5. 기존 config.xml 파일 삭제(백업)
+
+6. tomcat 실행
+ -  http://ip:port/jenkins 접속 확인
+
+--job 백업/복사
+
+/data001/jenkins-ci/data/jobs 파일들 복사&백업
+//기본 경로 ~/.jenkins
+jenkins 설정 -> Reload Configuration from Disk
+
+///참고사이트
+https://steady-hello.tistory.com/59
+
+https://blog.leocat.kr/notes/2017/11/02/jenkins-backup-restore
+
+
+//jenkins 신규 구성시
+Publish Over SSH 플러그인 설치
+
+
+--opengrok setting
+tar.gz 파일 다운로드 (1.3.16)
+
+//1. 디렉토리 만들기
+/opengrok/{src,data,dist,etc,log}
+4가지 다 만들기
+
+2. 다운로드 파일 압축풀기
+tar -C /opengrok/dist --strip-components=1 -xzf opengrok-X.Y.Z.tar.gz
+
+//3. properties 파일 복사
+cp /opengrok/dist/doc/logging.properties /opengrok/etc
+
+//-복사한 파일 내용 변경
+handlers= java.util.logging.FileHandler, java.util.logging.ConsoleHandler
+
+java.util.logging.FileHandler.pattern = /opengrok/log/opengrok%g.%u.log     //경로변경
+java.util.logging.FileHandler.append = false
+java.util.logging.FileHandler.limit = 0
+java.util.logging.FileHandler.count = 30
+java.util.logging.FileHandler.level = ALL
+java.util.logging.FileHandler.formatter = org.opengrok.indexer.logger.formatter.SimpleFileLogFormatter
+
+java.util.logging.ConsoleHandler.level = WARNING
+java.util.logging.ConsoleHandler.formatter = org.opengrok.indexer.logger.formatter.SimpleFileLogFormatter
+
+org.opengrok.level = FINE
+
+//4. 소스 세틷? test용
+cd /opengrok/src
+
+# use one of the training modules at GitHub as an example small app.      
+git clone  https://github.com/githubtraining/hellogitworld.git
+
+# use OpenGrok as an example large app
+git clone  https://github.com/OpenGrok/OpenGrok
+
+5. 톰캣 /webapps/xxxx/WEB-INF/web.xml 파일 수정
+
+-내용 경로 수정
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee
+          http://xmlns.jcp.org/xml/ns/javaee/web-app_3_1.xsd"
+         version="3.1">
+
+    <display-name>OpenGrok</display-name>
+    <description>A wicked fast source browser</description>
+    <context-param>
+        <description>Full path to the configuration file where OpenGrok can read its configuration</description>
+        <param-name>CONFIGURATION</param-name>
+        <param-value>/opengrok/etc/configuration.xml</param-value> //경로
+    </context-param>
+...
+
+6. indexing
+
+java -Djava.util.logging.config.file=logging.properties -jar dist/lib/opengrok.jar -c /usr/local/bin/ctags -s src -d data -H -P -S -G -W etc/configuration.xml -U  http://12.345.67.890:8888/test
+
+java -Djava.util.logging.config.file=logging.properties -jar dist/lib/opengrok.jar -c /opt/ctags/ctags -s src -d data -H -P -S -G -W dist/etc/configuration.xml
+
+//indexing중 ppm에러 발생시
+java -jar /xxx/dist/lib/opengrok.jar -c /usr/local/bin/ctags -s /xxx/src/ -d /data001/opengrok/opengrok-etc/dist/data/ -W /xxx/dist/etc/configuration.xml -H -P -S -G --leadingWildCards on -i *.ppm -U  http://12:345:678:8090/test
+
+//추가
+/usr/lib/jvm/java-1.11.0-openjdk-amd64/bin/java -jar /xxxx/opengrok.jar -c /opt/ctags/ctags -s /xxxx/opengrok-test/src -d /xxxx/dist/data/ -W /xxxx/dist/etc/configuration.xml -H -P -S -G --leadingWildCards on -i *.ppm -i *.jar -i *.so -i *.o -i *.gz -i *.bz2 -i *.gdb -i zh.txt -i zh.xml -i *.m4 -T 8
+
+
+java -Djava.util.logging.config.file=/xxxxx/dist/doc/logging.properties -jar opengrok.jar -c /usr/local/bin/ctags -s /xxxxx/src -d /xxxxx/dist/data/ -W /xxxxx/dist/etc/configuration.xml --depth 10 -H -P -S -G --leadingWildCards on -i *.ppm -i *.jar -i *.so -i *.o -i *.gz -i *.bz2 -i *.gdb -i zh.txt -i zh.xml -i *.m4
+
+
+
+
+
+https://github.com/oracle/opengrok/wiki/How-to-setup-OpenGrok //참고 사이트
+http://raman-kumar.blogspot.com/2019/06/how-to-setup-opengrok-redhat-rhel-7.html
