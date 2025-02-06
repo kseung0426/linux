@@ -511,9 +511,7 @@ $ sudo add-apt-repository ppa:openjdk-r/ppa
 //
 https://gerrit-documentation.storage.googleapis.com/Documentation/3.0.0/note-db.html#migration
 
-
 //////gerrit DB migration v2.16.9 > v3.5.0.1
-
 
 1. v2.16.9 설치
 $ java -jar /xxxxx/gerrit-2.16.9.war init -d /xxxxx/test_gerrit
@@ -539,3 +537,5 @@ $ /xxxxx/jdk-11/bin/java -jar /xxxxx/gerrit-3.5.0.1.war reindex -d /xxxxx/test_g
 //
 https://chowdera.com/2021/03/20210326190017819e.html
 https://all4dich.wordpress.com/2020/02/12/upgrade-gerrit-from-2-16-to-3-1-2/
+
+//vi 줄표시 :set nu
