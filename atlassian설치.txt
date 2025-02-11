@@ -1,0 +1,751 @@
+- jira/confluence/crowd 3개는 기본 설치
+jira* / jira service management(구축때 설치)
+confluence*
+bitbucket / bamboo / (fisheye + crucible)
+crowd*(계정관리 sso)
+
+*jira/confluence/crowd support platform 각 사이트에서 공통 요구사항 확인
+*atlassian 지원하는 openjdk -> https://adoptium.net/ 
+
+웹브라우저 20년 이후 edge 사용
+오라클 비용 이슈로 postgreSQL or mysql 사용
+설치는 서비스 등록 방식으로 안함 tag/zip 사용
+---------------------------------------------------------
+
+■ OS 파티션 추천
+/  : 100GB   또는 150GB
+/boot  :1GB
+/app  : 600GB
+ 
+       /app/jira
+	   /app/confluence
+	   /app/application-data
+		                  ./jira-home
+						  ./confluence-home
+마운트 /data
+          ./shared-home
+		               ./jira-shared-home
+					   ./conf-shared-home
+
+
+
+■ 서버 기본 설정
+**virtualbox 마우스 usb테블릿 모드로 변경해야함(pc-gram)
+복제할때 모든 네트워크 어댑터의 새 MAC주소 생성
+
+* root/root12#$
+
+1. 서버 처음 접근 시, df -h 마운트 상태 확인
+
+2. UID/GID 확인
+
+cat /etc/passwd
+..
+atlassian:x:1000:1000::/home/atlassian:/bin/bash
+
+ 1)//위 내용 없으면 아래 명령어로 추가
+	groupadd -g 1000 atlassian
+	useradd -g 1000 -u 1000 atlassian
+
+3. enp0s8 IP 변경
+
+nmcli connection modify enp0s8 ipv4.addresses 192.168.10.??/24
+nmcli connection down enp0s8
+nmcli connection up enp0s8
+
+4. 패키지 설치
+
+yum -y install net-tools
+yum install -y tar
+yum -y install nfs-utils
+yum install -y wget gcc gcc-c++ expat-devel zlib-devel tar
+
+5. java17 설치
+
+tar zxvf OpenJDK17U-jdk_x64_linux_hotspot_17.0.12_7.tar
+mv jdk-17.0.12.7+ jdk-17012
+mv jdk-17012 /app/jdk/
+
+6. atlassian 유저만 java 실행 할 수 있게 설정
+
+su - atlassian
+vi /home/atlassian/.bash_profile
+ 1)//아래 내용 입력 후 저장
+	#jdk config
+	export JAVA_HOME=/app/jdk/jdk-17012
+	export PATH=$PATH:$JAVA_HOME/bin
+ 2)//적용 및 확인
+	source /home/atlassian/.bash_profile
+	java -version
+
+7. 방화벽 오픈
+
+//postgresql
+firewall-cmd --zone=public --permanent --add-port=5432/tcp
+firewall-cmd --reload
+firewall-cmd --zone=public --list-all
+
+8. host 입력
+
+vi /etc/hosts
+
+//아래 내용 추가
+# Atlas Config
+192.168.10.11		jiradc.alm.com
+192.168.10.11		wikidc.alm.com
+192.168.10.11		gitdc.alm.com
+192.168.10.11		crowddc.alm.com
+192.168.10.11		bamboodc.alm.com
+192.168.10.11		jsmdc.alm.com
+
+
+
+■ Apache 설치
+
+1. Apache 컴파일 설치
+
+//설치 폴더 생성
+mkdir -p /app/apache
+mkdir -p /app/program && cd /app/program
+
+2. pcre (pcre2는 안됨) 다운로드 및 설치
+
+ 1) 다운
+	wget https://sourceforge.net/projects/pcre/files/pcre/8.45/pcre-8.45.tar.gz --no-check-certificate
+	tar -zxvf /app/program/pcre-8.45.tar.gz
+ 2)컴파일
+	cd /app/program/pcre-8.45
+	./configure --prefix=/app/apache/pcre
+	make && make install
+
+3. Apache, apr, apr-util 다운로드
+
+wget https://dlcdn.apache.org/httpd/httpd-2.4.62.tar.gz --no-check-certificate -P /app/program
+wget https://dlcdn.apache.org/apr/apr-1.7.5.tar.gz --no-check-certificate -P /app/program
+wget https://dlcdn.apache.org/apr/apr-util-1.6.3.tar.gz --no-check-certificate -P /app/program
+
+tar -zxvf /app/program/httpd-2.4.62.tar.gz -C /app/program
+tar -zxvf /app/program/apr-1.7.5.tar.gz -C /app/program
+tar -zxvf /app/program/apr-util-1.6.3.tar.gz -C /app/program
+
+mv /app/program/apr-1.7.5 /app/program/httpd-2.4.62/srclib/apr
+mv /app/program/apr-util-1.6.3 /app/program/httpd-2.4.62/srclib/apr-util
+cd /app/program/httpd-2.4.62
+
+//컴파일
+./configure --prefix=/app/apache \
+--enable-module=so \
+--enable-mods-shared=all \
+--enable-so \
+--enable-proxy \
+--enable-rewrite \
+--enable-deflate \
+--with-included-apr-util \
+--with-included-apr \
+--with-pcre=/app/apache/pcre/bin/pcre-config
+
+make && make install
+
+4. SELinux 중지
+
+ 1) 아래 내용 변경
+	vi /etc/selinux/config
+	22 SELINUX=disabled
+ 2) 임시 설정 적용
+	setenforce 0
+
+5. httpd.service 생성
+
+ 1) 아래 위치에 생성
+	cd /etc/systemd/system
+	vi httpd.service
+ 2)아래 내용 복사
+
+[Unit]
+Description=The Apache HTTP Server
+
+[Service]
+Type=forking
+ExecStart=/app/apache/bin/apachectl start
+ExecReload=/app/apache/bin/apachectl graceful
+ExecStop=/app/apache/bin/apachectl stop
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
+6. 데몬 리로드
+
+//파일 변경되거나, 생성되었을 경우 실행
+systemctl daemon-reload
+//서비스 활성화
+systemctl enable httpd
+//Apache 서비스 시작
+systemctl start httpd
+//서비스 확인
+ps -ef | grep httpd
+
+7. httpd.conf 설정 정보
+
+vi /app/apache/conf/httpd.conf
+
+//주석 해제
+118 LoadModule headers_module modules/mod_headers.so               # Wiki
+124 LoadModule proxy_module modules/mod_proxy.so                   # Jira,Wiki
+127 LoadModule proxy_http_module modules/mod_proxy_http.so         # Jira,Wiki
+132 LoadModule proxy_wstunnel_module modules/mod_proxy_wstunnel.so # Jira,Wiki
+134 LoadModule proxy_balancer_module modules/mod_proxy_balancer.so # Jira,Wiki
+140 LoadModule slotmem_shm_module modules/mod_slotmem_shm.so       # Jira,Wiki
+143 LoadModule lbmethod_byrequests_module modules/mod_lbmethod_byrequests.so # Jira,Wiki
+165 LoadModule rewrite_module modules/mod_rewrite.so               # Jira,Wiki
+207 ServerName www.example.com:80                                  # Jira
+472 Include conf/extra/httpd-mpm.conf                              # Jira
+490 Include conf/extra/httpd-vhosts.conf                           # Jira
+499 Include conf/extra/httpd-default.conf                          # Jira
+
+vi /app/apache/conf/extra/httpd-default.conf
+
+//설정 변경
+10 Timeout 300
+
+8. httpd-vhosts.conf 파일 설정
+
+vi /app/apache/conf/extra/httpd-vhosts.conf
+
+ 1) Jira
+<VirtualHost *:80>
+        ProxyRequests off
+
+        ServerName jiradc.alm.com
+
+		Header add Set-Cookie "ROUTEID=.%{BALANCER_WORKER_ROUTE}e; path=/" env=BALANCER_ROUTE_CHANGED
+        <Proxy balancer://jiracluster>
+                # JIRA node 1
+                BalancerMember http://192.168.10.12:8080 route=node1
+                # JIRA node 2  Commented pending node installation
+                BalancerMember http://192.168.10.13:8080 route=node2
+
+                # Security "we aren't blocking anyone but this the place to make those changes
+                Order Deny,Allow
+                Deny from none
+                Allow from all
+
+                # Load Balancer Settings
+                # We are not really balancing anything in this setup, but need to configure this
+                ProxySet lbmethod=byrequests
+                ProxySet stickysession=ROUTEID
+        </Proxy>
+
+        # Here's how to enable the load balancer's management UI if desired
+        <Location /balancer-manager>
+                SetHandler balancer-manager
+
+                # You SHOULD CHANGE THIS to only allow trusted ips to use the manager
+                Order deny,allow
+                Allow from all
+        </Location>
+
+        # Don't reverse-proxy requests to the management UI
+        ProxyPass /balancer-manager !
+        # Reverse proxy all other requests to the JIRA cluster
+        ProxyPass / balancer://jiracluster/
+        ProxyPreserveHost on
+</VirtualHost>
+
+ 2) Confluence 
+<VirtualHost *:80>
+
+    ServerName wikidc.alm.com
+
+    <Location /balancer-manager>
+        SetHandler balancer-manager
+        Require all granted
+    </Location>
+
+    # Main Synchrony proxy rule
+    ProxyPass /synchrony  balancer://synchrony-http/synchrony
+
+    # Synchrony HTTP balancer declaration
+    <Proxy balancer://synchrony-http>
+        BalancerMember http://192.168.10.12:8091 route=synnode1
+        BalancerMember http://192.168.10.13:8091 route=synnode2
+
+        Require all granted
+    </Proxy>
+
+    # Synchrony WebSocket balancer declaration
+    <Proxy balancer://synchrony-ws>
+        BalancerMember ws://192.168.10.12:8091 route=synnode1
+        BalancerMember ws://192.168.10.13:8091 route=synnode2
+
+        Require all granted
+    </Proxy>
+
+    # WebSocket rewrite condition and rules
+    RewriteEngine     On
+    RewriteCond       %{REQUEST_URI}       ^/synchrony/(.*)/bayeux-sync1   [NC]
+    RewriteRule       /(.*)                balancer://synchrony-ws/$1      [P,L]
+
+    # Main Confluence balancer
+    Header add Set-Cookie "ROUTEID=.%{BALANCER_WORKER_ROUTE}e; path=/" env=BALANCER_ROUTE_CHANGED
+    <Proxy "balancer://confluence-cluster">
+        BalancerMember "http://192.168.10.12:8090" route=1
+        BalancerMember "http://192.168.10.13:8090" route=2
+        ProxySet stickysession=ROUTEID
+    </Proxy>
+
+    # Main Confluence proxy rules
+    ProxyPass        "/" "balancer://confluence-cluster/"
+    ProxyPassReverse "/" "balancer://confluence-cluster/"
+
+</VirtualHost>
+
+ 3) Crowd
+ <VirtualHost *:80>
+        ProxyRequests off
+
+        ServerName crowddc.alm.com
+
+        Header add Set-Cookie "ROUTEID=.%{BALANCER_WORKER_ROUTE}e; path=/" env=BALANCER_ROUTE_CHANGED
+        <Proxy balancer://crowdcluster>
+                # Crowd node 1
+                BalancerMember http://192.168.10.12:8095 route=node1
+                # Crowd node 2
+                BalancerMember http://192.168.10.13:8095 route=node2
+
+                # Security "we aren't blocking anyone but this the place to make those changes
+                Order Deny,Allow
+                Deny from none
+                Allow from all
+
+                # Load Balancer Settings
+                # We are not really balancing anything in this setup, but need to configure this
+                ProxySet lbmethod=byrequests
+                ProxySet stickysession=ROUTEID
+        </Proxy>
+
+        # Here's how to enable the load balancer's management UI if desired
+        <Location /balancer-manager>
+                SetHandler balancer-manager
+
+                # You SHOULD CHANGE THIS to only allow trusted ips to use the manager
+                Order deny,allow
+                Allow from all
+        </Location>
+
+        # Don't reverse-proxy requests to the management UI
+        ProxyPass /balancer-manager !
+        # Reverse proxy all other requests to the Crowd cluster
+        ProxyPass / balancer://crowdcluster/
+
+        ProxyPreserveHost on
+        ProxyPassReverse / balancer://mycluster/
+</VirtualHost>
+
+9. 방화벽 오픈
+
+//apache
+firewall-cmd --zone=public --permanent --add-port=80/tcp
+firewall-cmd --zone=public --permanent --add-port=443/tcp
+firewall-cmd --reload
+firewall-cmd --zone=public --list-all
+
+
+
+■ jira 설치 교육 node2(192.168.10.12)
+
+jira9.12.13/confluence8.5/crowd6.x 설치
+*공통 요구 사항 java17/postgreSQL14
+
+1. 설치 경로
+
+mkdir -p /app/application-data/jira-home
+mkdir -p /data/jira-shared-home
+chown -R atlassian:atlassian /app /data
+su - atlassian
+
+engine -> /app/jira
+home -> /app/application-data/jira-home
+shared-home -> /data/jira-shared-home 
+
+2. host 파일 내용 추가
+
+C:\Windows\System32\drivers\etc
+# Atlas Config
+192.168.10.11		jiradc.alm.com
+192.168.10.11		wikidc.alm.com
+192.168.10.11		crowddc.alm.com
+
+3. 마운트 설정 및 로딩/확인
+
+mkdir /data
+chown -R atlassian:atlassian /data
+vi /etc/fstab
+  192.168.10.11:/data  /data   nfs defaults 0 0
+  192.168.10.11:/data/crowd-shared-home/shared /app/application-data/crowd-home/shared nfs defaults 0 0
+mount -a
+df -h
+
+4. cluster.properties 파일 생성
+
+vi /app/application-data/jira-home/cluster.properties
+
+//아래 내용 복사
+# Node1
+jira.node.id = node1
+jira.shared.home = /data/jira-shared-home
+ehcache.listener.hostName = 192.168.10.12
+ehcache.listener.port = 40001
+ehcache.object.port = 40011
+
+5. 엔진폴더 설치
+
+chown -R atlassian:atlassian /app/program/atlassian-jira-software-9.12.13.tar.gz
+tar -zxvf /app/program/atlassian-jira-software-9.12.13.tar.gz -C /app
+mv /app/atlassian-jira-software-9.12.13-standalone /app/jira
+
+ 1)home 폴더 위치 지정
+	vi /app/jira/atlassian-jira/WEB-INF/classes/jira-application.properties
+	//아래와 같이 수정
+	jira.home = /app/application-data/jira-home
+
+ 2) server.xml 설정
+	vi /app/jira/conf/server.xml
+	//내용 추가
+	proxyName="jiradc.alm.com" proxyPort="80" scheme="http"
+
+ 3) setenv.sh 설정
+	vi /app/jira/bin/setenv.sh
+	//내용 수정
+	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=node1 -Dupm.plugin.upload.enabled=true"
+	27 JVM_MINIMUM_MEMORY="2048m"
+	28 JVM_MAXIMUM_MEMORY="2048m"
+
+ 4) dbconfig.xml 설정
+	vi /app/application-data/jira-home/dbconfig.xml
+	//아래 내용 복사(pool-max-size 150으로 변경)
+	
+<?xml version="1.0" encoding="UTF-8"?>
+
+<jira-database-config>
+  <name>defaultDS</name>
+  <delegator-name>default</delegator-name>
+  <database-type>postgres72</database-type>
+  <schema-name>public</schema-name>
+  <jdbc-datasource>
+    <url>jdbc:postgresql://192.168.10.11:5432/jiradb</url>
+    <driver-class>org.postgresql.Driver</driver-class>
+    <username>jirauser</username>
+    <password>jirapass</password>
+    <pool-min-size>40</pool-min-size>
+    <pool-max-size>150</pool-max-size>
+    <pool-max-wait>30000</pool-max-wait>
+    <validation-query>select 1</validation-query>
+    <min-evictable-idle-time-millis>60000</min-evictable-idle-time-millis>
+    <time-between-eviction-runs-millis>300000</time-between-eviction-runs-millis>
+    <pool-max-idle>40</pool-max-idle>
+    <pool-remove-abandoned>true</pool-remove-abandoned>
+    <pool-remove-abandoned-timeout>300</pool-remove-abandoned-timeout>
+    <pool-test-on-borrow>false</pool-test-on-borrow>
+    <pool-test-while-idle>true</pool-test-while-idle>
+    <connection-properties>tcpKeepAlive=true</connection-properties>
+  </jdbc-datasource>
+</jira-database-config>
+
+6. jira 실행
+
+su - atlassian
+//아래 파일으로 실행, 종료
+/app/jira/bin/start-jira.sh
+/app/jira/bin/stop-jira.sh
+
+* 12, 13서버 내용 입력해줘야함
+vi /etc/hosts
+192.168.10.11           jiradc.alm.com
+192.168.10.11           wikidc.alm.com
+192.168.10.11           crowddc.alm.com
+
+
+
+■ confluence 설치
+
+1. 오픈 파일 수 설정 (OS 재시작)
+
+vi /etc/security/limits.conf
+//아래 내용 추가
+atlassian hard nofile 65536
+atlassian soft nofile 65536
+atlassian hard nproc 65536
+atlassian soft nproc 65536
+
+2. 폴더 생성
+
+ 1) home 폴더
+	mkdir -p /app/application-data/confluence-home
+
+ 2) shared-home 폴더
+	mkdir -p /data/conf-shared-home
+
+ 3) 소유자 변경
+	chown -R atlassian:atlassian /app /data
+	su - atlassian
+
+3. 설치
+
+//엔진폴더 압축 해제
+chown -R atlassian:atlassian /app/program/atlassian-confluence-8.5.0.tar.gz
+tar -zxvf /app/program/atlassian-confluence-8.5.0.tar.gz -C /app
+mv /app/atlassian-confluence-8.5.0 /app/confluence
+
+ 1) Home 폴더 위치 지정
+	vi /app/confluence/confluence/WEB-INF/classes/confluence-init.properties
+	confluence.home=/app/application-data/confluence-home
+	
+ 2) server.xml 설정
+	vi /app/confluence/conf/server.xml
+	proxyName="wikidc.alm.com" proxyPort="80" scheme="http"
+	//maxThread=”48” → 최소 150으로 변경
+	
+ 3) setenv.sh 설정
+	vi /app/confluence/bin/setenv.sh
+	
+	74 CATALINA_OPTS="-Xms1024m -Xmx1024m -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 ${CATALINA_OPTS}"
+	
+	//97라인 주석 해제(업그레이드 시 시간 단축)
+	97 CATALINA_OPTS="-Dconfluence.upgrade.recovery.file.enabled=false ${CATALINA_OPTS}"
+  
+	//129 export CATALINA_OPTS 위에 내용 추가
+	# Node Config
+	CATALINA_OPTS="-Dconfluence.cluster.node.name=Node1 ${CATALINA_OPTS}"
+	
+4. 폰트 설치
+
+yum install -y dejavu-sans-fonts
+
+5. Application Link 설정 에러
+ 1) 하나의 서버에 두 시스템 설치 시 발생	
+ 
+ 2) 한서버에 설치했을때 설정해줘야함 
+	vi /app/jira/conf/context.xml
+	19 <Context sessionCookieName ="JIRASESSIONID">
+	
+	vi /app/jira/bin/setenv.sh
+	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=node1 -Dupm.plugin.upload.enabled=true"
+	//
+	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=Node1 -Dupm.plugin.upload.enabled=true -Dapplinks.allow.all.hosts=true"
+
+6. 서비스 실행	
+
+su - atlassian
+/app/confluence/bin/start-confluence.sh
+
+
+
+■ log 출력 alias 설정
+
+vi /home/atlassian/.bash_profile
+
+ 1)아래 내용 붙여넣기
+# Atl Alias
+alias jiralog='tail -f /app/application-data/jira-home/log/atlassian-jira.log'
+alias wikilog='tail -f /app/application-data/confluence-home/logs/atlassian-confluence.log'
+alias crowdlog='tail -f /app/application-data/crowd-home/logs/atlassian-crowd.log'
+alias bamboolog='tail -f /app/application-data/bamboo-home/logs/atlassian-bamboo.log'
+alias gitlog='tail -f /app/application-data/bitbucket-home/log/atlassian-bitbucket.log'
+
+ 2)적용
+source /etc/profile
+
+- jira, confluence admin 계정 동일하게 생성 (crowd 사용시 계정 2개 생성됨)
+- 설치 영문 진행
+//app/application-data/confluence-home
+rock 파일 지워야함
+
+
+
+■ 서버 이관 작업
+/app/jira/logs
+/app/jira/temp
+/app/jira/work
+안에 내용백업 후 삭제
+rm -rf  * 
+
+tar cvf jira.tar jira
+
+/app/application-data/jira-home/log
+
+tar cvf application-data.tar application-data
+
+confluence
+tmp 삭제
+ 
+3가지 다 log/temp/work 폴더 내용 삭제
+crowd apach-tomat/logs 내용 삭제
+temp
+
+지워야할 것
+/data/jira-shared-home
+export
+import
+
+/data/jira-shared-home/plugins
+ls- al
+플러그인 캐시 초기화는 . 파일들 삭제
+
+/data/conf-shared-home/viewfile 
+폴더 삭제
+/data/conf-shared-home/backups
+
+confluence는 DB에 플러그인 저장해서 아래 폴더 삭제해도 복구함
+혹시 모르니 백업하고 정상 복구되는거 확인 후 삭제
+/app/application-data/confluence-home
+bundled-plugins
+plugins-cache
+plugins-osgi-cache
+plugins-temp
+
+/app/application-data/confluence-home/shared-home
+안에 dcl imgEffects thumbnails viewfile 삭제
+
+
+
+■ Application Link 설정 에러
+ - 하나의 서버에 두 시스템 설치 시 발생
+  URL must not point to localhost or restricted IPs.
+
+*JIRA
+ 14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dapplinks.allow.all.hosts=true"
+
+*Confluence
+ 74 CATALINA_OPTS="-Xms1g -Xmx1g -Dapplinks.allow.all.hosts=true ${CATALINA_OPTS}"
+
+*bamboo
+
+ 15 : ${JVM_SUPPORT_RECOMMENDED_ARGS:="-Dfile.encoding=UTF-8 -Dapplinks.allow.all.hosts=true"}
+ 
+*Bitbucket : _start-webapp.sh
+ 14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dcluster.node.name=Node1 -Dapplinks.allow.all.hosts=true"
+
+*Crowd - [테스트 전]
+    CATALINA_OPTS="-Dapplinks.allow.all.hosts=true $CATALINA_OPTS" 
+
+
+- 파일생성 /app/application-data/jira-home/jira-config.properties
+jira.websudo.is.disabled = true
+#jira.search.stable.max.results = 9000
+#jira.export.excel.enabled=true
+jira.lf.date.relativize = false
+
+# 날짜 절대값 출력   jira.lf.date.relativize = false
+
+upgrade.reindex.allowed=false
+
+# 5.x  jira.search.views.default.max = 2000  or  jira.search.views.max.limit = 2000
+# jira.search.views.default.max = 2000
+# jira.search.views.max.limit = 2000
+
+# jira.index.issue.threads = 20 (default for Jira 8.x)
+jira.index.issue.threads = 30
+
+- System -> Advanced Settings
+jira.text.field.character.limit = 0 으로 마이그레이션시
+
+- System -> Troubleshooting and support tools 설치 후 먼저 확인
+
+
+/data/jira-shared-home/data 삭제되면 복구 x
+
+프로젝트, issue, db 정보 -> system info
+
+스크린샷, 발생시간, 로그, 서포트집, 절차
+
+
+
+■ PostgreSQL 14 설치
+
+1. PostgreSQL 패키지 버전 확인
+
+yum info postgresql-server
+
+2. PostgreSQL 리포지토리 추가
+
+yum -y install https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+
+3. 사용 가능한 리포지토리 확인
+
+yum repolist -y
+
+4. 리포지토리 추가 후 시스템 업데이트 및 재부팅
+
+yum -y update && reboot now
+
+5. PostgreSQL 설치 및 초기화
+
+yum install -y postgresql14-server postgresql14
+/usr/pgsql-14/bin/postgresql-14-setup initdb
+
+6. 데이터베이스 서비스 시작/활성화
+
+systemctl enable postgresql-14 && systemctl start postgresql-14
+systemctl status postgresql-14
+
+
+# DB설정
+
+1. 외부에서 DBMS 접근 허용 설정
+
+vi /var/lib/pgsql/14/data/postgresql.conf
+
+59 listen_addresses = '*'
+65 max_connections = 300
+
+2. 클라이언트 접속 인증 방법 변경
+
+vi /var/lib/pgsql/14/data/pg_hba.conf
+
+85 local   all           all                               md5 # 테스트시 trust 사용 ok
+86 # IPv4 local connections:
+87 host    all           all         0.0.0.0/0             md5
+88 # IPv6 local connections:
+89 host    all           all         ::1/128               md5
+
+3. postgres 사용자 암호 설정(실 운영서버일 경우 설정)
+
+//2번 85 line trust 적용 후 설정
+su - postgres
+
+psql
+\password postgres
+\q
+exit
+
+4. PostgreSQL 서비스 재시작
+
+systemctl restart postgresql-14
+
+//방화벽 오픈
+firewall-cmd --zone=public --permanent --add-port=5432/tcp && firewall-cmd --reload
+firewall-cmd --zone=public --list-all
+
+
+# PostgreSQL 14 데이터 생성
+
+1. postgreSQL 접속
+
+su - postgres
+psql
+
+- jira
+CREATE DATABASE jiradb WITH ENCODING 'UNICODE' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;
+create user jirauser with password 'jirapass';
+GRANT ALL PRIVILEGES ON DATABASE jiradb TO jirauser;
+
+- confluence
+CREATE DATABASE confdb WITH ENCODING 'UNICODE';
+CREATE USER confuser PASSWORD 'confpass';
+GRANT ALL PRIVILEGES ON DATABASE confdb to confuser;
+
+- crowd
+CREATE DATABASE crowddb WITH ENCODING 'UNICODE';
+CREATE USER crowduser PASSWORD 'crowdpass';
+GRANT ALL PRIVILEGES ON DATABASE crowddb to crowduser;
