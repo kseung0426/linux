@@ -20,11 +20,11 @@ crowd*(계정관리 sso)
        /app/jira
 	   /app/confluence
 	   /app/application-data
-		                  ./jira-home
+		                  ./jira-home (home폴더는 DB같은 정보 읽어옴)
 						  ./confluence-home
 마운트 /data
           ./shared-home
-		               ./jira-shared-home
+		               ./jira-shared-home (첨부파일, 플러그인 설치됨)
 					   ./conf-shared-home
 
 
@@ -420,8 +420,13 @@ mv /app/atlassian-jira-software-9.12.13-standalone /app/jira
 	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=node1 -Dupm.plugin.upload.enabled=true"
 	27 JVM_MINIMUM_MEMORY="2048m"
 	28 JVM_MAXIMUM_MEMORY="2048m"
+	
+ 4) context.xml 설정
+	vi /app/jira/conf/context.xml
+	//context 옆에 추가
+	19 <Context sessionCookieName="JIRASESSION">
 
- 4) dbconfig.xml 설정
+ 5) dbconfig.xml 설정
 	vi /app/application-data/jira-home/dbconfig.xml
 	//아래 내용 복사(pool-max-size 150으로 변경)
 	
@@ -609,6 +614,7 @@ plugins-temp
 
 
 
+
 ■ Application Link 설정 에러
  - 하나의 서버에 두 시스템 설치 시 발생
   URL must not point to localhost or restricted IPs.
@@ -735,17 +741,28 @@ firewall-cmd --zone=public --list-all
 su - postgres
 psql
 
-- jira
-CREATE DATABASE jiradb WITH ENCODING 'UNICODE' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;
-create user jirauser with password 'jirapass';
-GRANT ALL PRIVILEGES ON DATABASE jiradb TO jirauser;
+1)JIRA Software 
+postgres=# CREATE DATABASE jiradb WITH ENCODING 'UNICODE' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;
+postgres=# create user jirauser with password 'jirapass';
+postgres=# GRANT ALL PRIVILEGES ON DATABASE jiradb TO jirauser;
 
-- confluence
-CREATE DATABASE confdb WITH ENCODING 'UNICODE';
-CREATE USER confuser PASSWORD 'confpass';
-GRANT ALL PRIVILEGES ON DATABASE confdb to confuser;
+2)Confluence (Crowd, Bamboo 동일)
+postgres=# CREATE DATABASE confdb WITH ENCODING 'UNICODE';
+postgres=# CREATE USER confuser PASSWORD 'confpass';
+postgres=# GRANT ALL PRIVILEGES ON DATABASE confdb to confuser;
 
-- crowd
-CREATE DATABASE crowddb WITH ENCODING 'UNICODE';
-CREATE USER crowduser PASSWORD 'crowdpass';
-GRANT ALL PRIVILEGES ON DATABASE crowddb to crowduser;
+3)Crowd (Conflunece Bamboo 동일)
+postgres=# CREATE DATABASE crowddb WITH ENCODING 'UNICODE';
+postgres=# CREATE USER crowduser PASSWORD 'crowdpass';
+postgres=# GRANT ALL PRIVILEGES ON DATABASE crowddb to crowduser;
+
+4)Bitbucket
+CREATE ROLE gituser WITH LOGIN PASSWORD 'gitpass' VALID UNTIL 'infinity';
+CREATE DATABASE bitbucketdb WITH ENCODING='UTF8' OWNER=gituser CONNECTION LIMIT=-1;
+GRANT ALL PRIVILEGES ON DATABASE bitbucketdb TO gituser;
+
+* 기타
+Bamboo
+postgres=# CREATE DATABASE cicddb WITH ENCODING 'UNICODE';
+postgres=# CREATE USER cicduser PASSWORD 'cicdpass';
+postgres=# GRANT ALL PRIVILEGES ON DATABASE cicddb to cicduser;
