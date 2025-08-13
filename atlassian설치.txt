@@ -28,6 +28,7 @@ crowd*(계정관리 sso)
 					   ./conf-shared-home
 
 
+(마운트 없이 단일 서버면 제품한개 1T 이상)
 
 ■ 서버 기본 설정
 **virtualbox 마우스 usb테블릿 모드로 변경해야함(pc-gram)
@@ -383,6 +384,8 @@ chown -R atlassian:atlassian /data
 vi /etc/fstab
   192.168.10.11:/data  /data   nfs defaults 0 0
   192.168.10.11:/data/crowd-shared-home/shared /app/application-data/crowd-home/shared nfs defaults 0 0
+
+systemctl daemon-reload
 mount -a
 df -h
 
@@ -417,7 +420,7 @@ mv /app/atlassian-jira-software-9.12.13-standalone /app/jira
  3) setenv.sh 설정
 	vi /app/jira/bin/setenv.sh
 	//내용 수정
-	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=node1 -Dupm.plugin.upload.enabled=true"
+	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=Node1 -Dupm.plugin.upload.enabled=true -Dapplinks.allow.all.hosts=true"
 	27 JVM_MINIMUM_MEMORY="2048m"
 	28 JVM_MAXIMUM_MEMORY="2048m"
 	
@@ -537,7 +540,7 @@ yum install -y dejavu-sans-fonts
 	vi /app/jira/bin/setenv.sh
 	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=node1 -Dupm.plugin.upload.enabled=true"
 	//
-	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=Node1 -Dupm.plugin.upload.enabled=true -Dapplinks.allow.all.hosts=true"
+	14 JVM_SUPPORT_RECOMMENDED_ARGS="-Dapplinks.allow.all.hosts=true -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -DjvmRoute=Node1 -Dupm.plugin.upload.enabled=true"
 
 6. 서비스 실행	
 

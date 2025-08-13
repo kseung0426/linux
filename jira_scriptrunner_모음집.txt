@@ -1,0 +1,2084 @@
+------------------------Issue type 생성제한--------------------------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.security.roles.ProjectRoleManager
+
+import static com.atlassian.jira.issue.IssueFieldConstants.ISSUE_TYPE
+
+def projectRoleManager = ComponentAccessor.getComponent(ProjectRoleManager)
+def allIssueTypes = ComponentAccessor.constantsManager.allIssueTypeObjects
+def groupManager = ComponentAccessor.groupManager
+def user = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+String userId = user.getUsername()
+def issueTypeField = getFieldById(ISSUE_TYPE)
+def userInGroup = groupManager.getGroupNamesForUser(userId)
+
+def remoteUsersRoles = projectRoleManager.getProjectRoles(user, issueContext.projectObject)*.name
+def availableIssueTypes = []
+
+if ("jira-administrators" in userInGroup){
+    availableIssueTypes.addAll(allIssueTypes)
+}else{
+    if ("일반사용자" in remoteUsersRoles || "품질관리자" in remoteUsersRoles) {
+    availableIssueTypes.addAll(allIssueTypes.findAll { it.name in ["DEFECT_VD_To_PLM", "DEFECT_NW_To_PLM", "DEFECT_NW_To_PLM", "DEFECT_MOBILE_To_PLM","DEFECT_DA_To_PLM","DEFECT_HME_To_PLM"] })
+} else if("Administrators" in remoteUsersRoles){
+    availableIssueTypes.addAll(allIssueTypes)
+    }
+}
+
+
+issueTypeField.setFieldOptions(availableIssueTypes)
+------------------------------------------------------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.security.roles.ProjectRoleManager
+def currentUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+def projectRoleManager = ComponentAccessor.getComponent(ProjectRoleManager)
+def projectRoles = projectRoleManager.getProjectRoles(currentUser, issue.getProjectObject())
+def approvedUsers = 'admin'
+if( projectRoles?.find(){it.getName() == "Administrators"} )
+  true
+else if ( projectRoles?.find(){it.getName() == "품질관리자"} )
+  if(issue.issueType?.name == "DEFECT_MOBILE_To_PLM" )
+            true
+else
+  false
+  
+  ALTER TABLE CUSTOMFIELDVALUE  MODIFY (STRINGVALUE VARCHAR2(2000));
+  
+
+
+-----------------------Option list default 값 셋팅-----------------------------------
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.Issue
+
+
+import groovy.transform.BaseScript
+
+@BaseScript FieldBehaviours fieldBehaviours
+
+def opendraftfield = getFieldById("customfield_10841")
+
+def optionsManager = ComponentAccessor.getOptionsManager()
+def cfField = customFieldManager.getCustomFieldObject(opendraftfield.getFieldId())
+def cfConfig = cfField.getRelevantConfig(getIssueContext())
+def cfOptions = optionsManager.getOptions(cfConfig)
+
+opendraftfield.setFieldOptions(cfOptions.findAll{it.value in ["Open","Draft"]})
+
+----------------------------------------Open option List주기----------------------------------------------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import groovy.transform.BaseScript
+
+@BaseScript FieldBehaviours fieldBehaviours
+
+// the cascading select field that you want to set
+final  fieldName = 'Open/Draft'
+
+// parent value that you want to select
+final  parentValue = 'Open'
+
+// child value that you want to select
+final  childValue = 'Draft'
+
+def field = getFieldByName(fieldName)
+def optionsManager = ComponentAccessor.optionsManager
+def customField = ComponentAccessor.customFieldManager.getCustomFieldObjects(issueContext.projectId, issueContext.issueTypeId).findByName(fieldName)
+
+assert customField : "Could not find custom field with name $fieldName"
+
+def fieldConfig = customField.getRelevantConfig(issueContext)
+def options = optionsManager.getOptions(fieldConfig)
+
+// find the Cascading Select options with those values
+def parentOption = options.find { it.value == parentValue }
+def childOption = parentOption?.childOptions?.find { it.value == childValue }
+
+assert parentOption && childOption : 'One ore more of the given option values are not available'
+
+field.setFormValue([parentOption.optionId, childOption.optionId])
+
+-----------None 뺴기----------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+def optionsManager = ComponentAccessor.getComponent(OptionsManager)
+
+def systemIssue = getFieldById("customfield_10836")
+def systemIssueValue = systemIssue.value
+systemIssue.setAllowInlineEdit(false)
+
+def customFieldManager = customFieldManager.getCustomFieldObject(systemIssue.getFieldId())
+def config = customFieldManager.getRelevantConfig(getIssueContext())
+def OptionsOriginal = optionsManager.getOptions(config)
+
+/*'none' 빼기*/
+def OptionsYN = OptionsOriginal.findAll { it.value in ['Y', 'N'] }
+systemIssue.setFieldOptions( OptionsYN )
+
+/****************************************
+* MOBILE to_PLM Defect 생성시 Problem Type 에 None, Circuit, Mech., S/W 를 선택 가능하도록 설정
+* Update Date : 2021-11-11
+****************************************/
+import com.atlassian.jira.component.ComponentAccessor
+import static com.atlassian.jira.issue.IssueFieldConstants.ISSUE_TYPE
+import com.atlassian.jira.issue.CustomFieldManager
+
+def optionsManager = ComponentAccessor.getOptionsManager ()
+def cf = getFieldById("customfield_10222") // Problem Type
+//def problemTypeValue = getFieldById("customfield_10222").value
+def cfField = customFieldManager.getCustomFieldObject(cf.getFieldId ())
+def cfConfig = cfField.getRelevantConfig (getIssueContext ())
+def cfOptions = optionsManager.getOptions (cfConfig)
+
+//ProblemType 체크
+def PTField = ComponentAccessor.getCustomFieldManager().getCustomFieldObjectByName("Problem Type")
+def problemType = underlyingIssue.getCustomFieldValue(PTField).toString()
+
+//Status 체크
+def status = underlyingIssue.status.getSimpleStatus().getName()
+
+//기본값 설정
+def ParticipationTypeMap = [:]
+ParticipationTypeMap.put("-1", "None")
+ParticipationTypeMap += cfOptions.findAll { it.value in ["S/W","Circuit","Mech."]}.collectEntries {[(it.optionId.toString()): it.value]}
+
+cf.setFieldOptions(ParticipationTypeMap);
+
+//problemtype 이 S/W 이고 이슈가 특정 상태일때 mid,low 필드가 필수필드가됨
+if(problemType == "S/W" && status == "Resolved" || problemType == "S/W" && status == "Open"){// 
+   def resolvOption = getFieldById("customfield_10833")
+   def resolveOptionSmallField = getFieldById("customfield_10832") // Resolve Option(소) Field
+   //Resolve Option (중),(소) 필수 처리
+   resolvOption.setRequired(true)
+   resolveOptionSmallField.setRequired(true)
+}
+
+
+--------------------현재 status 가져오기 --------------------
+import com.atlassian.jira.component.ComponentAccessor
+import static com.atlassian.jira.issue.IssueFieldConstants.RESOLUTION
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.Issue
+import groovy.transform.BaseScript
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.atlassian.jira.config.ResolutionManager
+
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+@BaseScript FieldBehaviours fieldBehaviours
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+def issueKey = "QI2303220063701001-127"
+def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+
+def issueStatus = issue.getStatus().getSimpleStatus().getName()
+log.debug(issueStatus)
+
+
+
+
+----------------IssueType 이슈타입 가져와서 초기화 하기--------------------
+/****************************************
+* 대책분류, 세부Block Initial
+* Update Date : 2021-04-17
+****************************************/
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import groovy.transform.BaseScript
+
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+ 
+def comboCfa = getFieldById("customfield_10605")
+def comboCfb = getFieldById("customfield_10606")
+
+def constantsManager = ComponentAccessor.getConstantsManager()
+
+def issueTypeName = getIssueContext().issueType.name
+String gubun="11"
+
+//사업부 분기
+if (issueTypeName=="DEFECT_VD_Fr_PLM" || issueTypeName=="DEFECT_VD_To_PLM"){
+    gubun="11"
+}else if(issueTypeName=="DEFECT_NW_Fr_PLM" || issueTypeName=="DEFECT_NW_To_PLM"){
+    gubun="26"
+}else if(issueTypeName=="DEFECT_MOBILE_Fr_PLM" || issueTypeName=="DEFECT_MOBILE_To_PLM")
+{
+    gubun="25"
+}
+
+// 대책분류
+comboCfa.convertToSingleSelect([
+    ajaxOptions: [
+        url           : getBaseUrl() + "/rest/scriptrunner/latest/custom/eventQisSolutioninfo?qdata="+gubun,
+        query         : true,
+        formatResponse: "general"
+    ]
+])
+
+
+comboCfb.convertToSingleSelect([    
+    ajaxOptions: [:]
+])
+
+
+--------------------Option List Validation Check 하기---------------------------
+import com.onresolve.jira.groovy.user.FormField
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.onresolve.scriptrunner.db.DatabaseUtil
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+
+import groovy.transform.BaseScript
+
+@BaseScript FieldBehaviours fieldBehaviours
+
+def comboCfavalue = getFieldById(getFieldChanged())
+String fqid=comboCfavalue.rawValue
+
+def comboCfb = getFieldById("customfield_10606")
+String comboCfbValues = comboCfb.getFormValue()
+
+/****************************************
+* Validation Check Start!
+****************************************/
+def issueTypeName = getIssueContext().issueType.name
+
+//사업부 분기
+if (issueTypeName != "DEFECT_VD_Fr_PLM" && issueTypeName !="DEFECT_VD_To_PLM"){
+    def select = "select qdbinfo.ida2a2, qdbinfo.blocknameeng from QISDETAILBLOCKINFO qdbinfo inner join QISSOLUTIONINFO qsinfo on qsinfo.solveid=qdbinfo.solveid where qsinfo.solvenameeng  = '" + fqid + "' and qdbinfo.blocknameeng = '" + comboCfbValues + "'"
+
+    def rows = DatabaseUtil.withSql('RESEARCH') { sql ->
+        sql.rows(select)
+    }
+
+    if(rows) {
+        comboCfb.clearError()
+    } else {    
+        comboCfb.setError("First, select the \"Countermeasure Category\", or choose the correct \"Detailed Block\"!")
+    }
+}
+/****************************************
+* Validation Check End!
+****************************************/
+
+if (fqid) {
+    comboCfb.convertToSingleSelect([    
+        ajaxOptions: [
+            url           : getBaseUrl() + "/rest/scriptrunner/latest/custom/eventQisDetailBlockinfo?fqid="+fqid,
+            query         : true,
+            formatResponse: "general"
+        ]
+    ])
+    comboCfb.setRequired(true)
+}
+/*
+else {
+    comboCfb.setHidden(false)
+}
+*/
+
+
+-----------------------이슈키 issuekey 받아온 후 rest api 호출 -----------------------------------------
+import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.component.ComponentAccessor
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+//def issueKey = "QI2303220063701001-82"
+//def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+
+def myStatus = issue.getStatus().getSimpleStatus().getName().toLowerCase()
+log.debug(myStatus)
+Issue issues  = issue
+def issueKey =  issues.getKey()
+
+def getPlmStatus(String issuekey){
+    def url = getBaseUrl() + "/rest/scriptrunner/latest/custom/plmstatusinfo?issuekey=$issuekey"
+    def http = new HTTPBuilder(url)
+    //def http = new HTTPBuilder('http://10.40.86.186/Windchill/jira/plm/getDefectJiraIssueKey.do?jiraIssueKey=QI2303220063701001-82')
+    http.request(GET) {
+        requestContentType = ContentType.JSON
+        response.success = { resp, JSON ->
+            
+            return JSON
+        }
+        response.failure = { resp ->
+            return "Request failed with status ${resp.status}"
+        }
+    }
+}
+
+
+def result = getPlmStatus(issueKey)
+log.debug(result)
+if (myStatus.contains(result.STATUS.toLowerCase())){
+    log.debug("pass")
+    return true
+}else{
+    log.debug("fail")
+    return false
+}
+
+------------------------changehistory 변경된 내용 확인---------------------------------------
+import com.atlassian.jira.issue.changehistory.ChangeHistoryManager
+ChangeHistoryManager changeHistoryManager = ComponentAccessor.getChangeHistoryManager()
+String lastUser = 'none'
+List<ChangeHistory> changeHistory
+
+changeHistory = changeHistoryManager.getChangeHistories(issue)
+changeHistory.sort{it.getTimePerformed()}
+
+for(ChangeHistory change: changeHistory){
+    lastUser = change.getAuthorDisplayName()
+}
+String status = issue.getStatus().getName()
+
+
+
+----------------------------시간 설정 및 시간 가져오기 ----------------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.util.DefaultIssueChangeHolder
+import com.atlassian.jira.issue.ModifiedValue
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.opensymphony.workflow.InvalidInputException
+import com.atlassian.jira.issue.changehistory.ChangeHistoryManager
+import com.atlassian.jira.issue.changehistory.ChangeHistory
+import com.atlassian.jira.issue.history.ChangeItemBean
+import com.atlassian.jira.issue.MutableIssue
+import java.sql.Timestamp
+import java.text.SimpleDateFormat;
+
+def customFieldManager = ComponentAccessor.getCustomFieldManager()
+def caseCode = customFieldManager.getCustomFieldObject("customfield_10217")
+def regDateField = customFieldManager.getCustomFieldObject("customfield_10225")    // 등록 일자
+def resolvedDateField = customFieldManager.getCustomFieldObject("customfield_10406")  // 해결 일자
+def rejectedDateField = customFieldManager.getCustomFieldObject("customfield_10408")  // 반려 일자
+String caseCodeValue = caseCode.getValue(issue)
+
+// history user check
+ChangeHistoryManager changeHistoryManager = ComponentAccessor.getChangeHistoryManager()
+String lastUser = 'none'
+List<ChangeHistory> changeHistory
+
+changeHistory = changeHistoryManager.getChangeHistories(issue)
+changeHistory.sort{it.getTimePerformed()}
+
+for(ChangeHistory change: changeHistory){
+    lastUser = change.getAuthorDisplayName()
+}
+
+// JIRA 상태
+String status = issue.getStatus().getName()
+
+// 시간 체크
+//등록 시간
+String regDateValue = regDateField.getValue(issue)
+def regDatepattern = "yyyy-MM-dd HH:mm:ss"
+def regDate_Date = Date.parse(regDatepattern, regDateValue)
+def regDate = new Timestamp(regDate_Date.getTime())
+def regDateminute = regDate.getMinutes() + 7
+regDate.setMinutes(regDateminute)
+
+// 해결 시간
+Timestamp resolvedDate = null
+String resolvedDateValue = resolvedDateField.getValue(issue)
+if(resolvedDateValue != null){
+    def resolvedDatePattern = "yyyy-MM-dd HH:mm:ss"
+    def resolvedDate_Date = Date.parse(resolvedDatePattern, resolvedDateValue)
+    resolvedDate = new Timestamp(resolvedDate_Date.getTime())
+    def resolvedDateMinute = resolvedDate.getMinutes() + 7
+    resolvedDate.setMinutes(resolvedDateMinute)
+}
+
+// 반려 시간
+Timestamp rejectedDate = null
+String rejectedDateValue = rejectedDateField.getValue(issue)
+if(rejectedDateValue != null){
+    def rejectedDatePattern = "yyyy-MM-dd HH:mm:ss"
+    def rejectedDate_Date = Date.parse(rejectedDatePattern, rejectedDateValue)
+    rejectedDate = new Timestamp(rejectedDate_Date.getTime())
+    def rejectedDateMinute = rejectedDate.getMinutes() + 7
+    rejectedDate.setMinutes(rejectedDateMinute)
+}
+
+
+// 현재 시간
+Date date = new Date()
+def time = new Timestamp(date.getTime())
+
+if(status == "Open"){
+    if(resolvedDateValue == null){
+        if(caseCodeValue == null){
+            invalidInputException = new InvalidInputException('Please resolve after the Case Code of PLM is determined')
+            invalidInputException.addError('PLM의 사례코드가 결정된 이후에 해결 진행하시기 바랍니다.')
+            return invalidInputException
+        }else{
+            if(lastUser != 'PLM Interface'){
+                if(time.before(regDate)){
+                    invalidInputException = new InvalidInputException('In syncing PLM with JIRA, please proceed after the time below.')
+                    invalidInputException.addError('PLM과 데이터 동기화 중이니 아래 시각 이후 진행 바랍니다.')
+                    invalidInputException.addError(regDate.toString())
+                    return invalidInputException
+                }
+            } 
+        }
+    }else{
+        if(lastUser != 'PLM Interface'){
+            if(time.before(rejectedDate)){
+                invalidInputException = new InvalidInputException('In syncing PLM with JIRA, please proceed after the time below.')
+                invalidInputException.addError('PLM과 데이터 동기화 중이니 아래 시각 이후 진행 바랍니다.')
+                invalidInputException.addError(rejectedDate.toString())
+                return invalidInputException
+            }
+        }
+    }
+}else{
+    if(lastUser != 'PLM Interface'){
+        if(time.before(resolvedDate)){
+            invalidInputException = new InvalidInputException('In syncing PLM with JIRA, please proceed after the time below.')
+            invalidInputException.addError('PLM과 데이터 동기화 중이니 아래 시각 이후 진행 바랍니다.')
+            invalidInputException.addError(resolvedDate.toString())
+            return invalidInputException
+        }
+    } 
+}
+
+
+------------------------하도급법 가져오기----------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.atlassian.jira.issue.fields.CustomField
+import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+import groovy.transform.BaseScript
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+import groovy.transform.BaseScript
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+@BaseScript FieldBehaviours fieldBehaviours
+def customFieldManager = ComponentAccessor.getCustomFieldManager()
+def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser()
+String userId = currentUser.getUsername()
+log.debug(userId)
+def rt=[:]
+
+def getUserSubcontrator(String userId){
+    def url = getBaseUrl() + "/rest/scriptrunner/latest/custom/userSubcontractCheck?username=$userId"
+    def http = new HTTPBuilder(url)
+    http.request(GET) {
+        requestContentType = ContentType.JSON
+        response.success = { resp, JSON ->
+            
+            return JSON
+        }
+        response.failure = { resp ->
+            return "Request failed with status ${resp.status}"
+        }
+    }
+}
+def result = getUserSubcontrator(userId)
+log.debug(result.items.value[0])
+if ( result.items.value[0] == "Y" ){
+    log.debug("Yes")
+    return true
+}else{
+    log.debug("No")
+    return false
+}
+------------------PLM에 내 상태 보내기-------------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.atlassian.jira.issue.fields.CustomField
+import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+import groovy.transform.BaseScript
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+import groovy.transform.BaseScript
+import com.atlassian.jira.issue.Issue
+
+//def issueKey = "QI2303220063701001-82"
+//def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+
+Issue issues  = issue
+def issueKey =  issues.getKey()
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+@BaseScript FieldBehaviours fieldBehaviours
+def customFieldManager = ComponentAccessor.getCustomFieldManager()
+def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser()
+String userId = currentUser.getUsername()
+log.debug(userId)
+def rt=[:]
+
+def sendJirastatusToPlm(String issueKey){
+    def url = getBaseUrl() + "/rest/scriptrunner/latest/custom/sendJiraStatustoPLM?issuekey=$issueKey"
+    def http = new HTTPBuilder(url)
+    http.request(GET) {
+        requestContentType = ContentType.JSON
+        response.success = { resp, JSON ->
+            
+            return JSON
+        }
+        response.failure = { resp ->
+            return "Request failed with status ${resp.status}"
+        }
+    }
+}
+def result = sendJirastatusToPlm(issueKey)
+log.debug(result.RESULT.toLowerCase())
+if (result.RESULT.toLowerCase() == "no_data"){
+    return true
+}
+
+---------------------------SendJiraStatustoPLM------------------------------
+import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.json.JsonBuilder
+import groovy.transform.BaseScript
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+
+
+@BaseScript CustomEndpointDelegate delegate
+
+sendJiraStatustoPLM(httpMethod:"GET"){
+    MultivaluedMap queryParams->
+  def issuekey=queryParams.getFirst("issuekey")as String 
+
+    def rt=[:]
+    def rows
+
+  try{
+        def url = "http://10.40.86.186/Windchill/jira/plm"
+        def apiurl = url + "/syncDefectJiraIssueKey.do?jiraIssueKey=$issuekey"
+        def http = new HTTPBuilder(apiurl)
+        //def http = new HTTPBuilder('http://10.40.86.186/Windchill/jira/plm/getDefectJiraIssueKey.do?jiraIssueKey=QI2303220063701001-82')
+        http.request(GET) {
+            requestContentType = ContentType.JSON
+            response.success = { resp, JSON ->
+                rows = JSON
+            }
+            response.failure = { resp ->
+                rows =  "Request failed with status ${resp.status}"
+            }
+        }
+        
+  }finally{
+       "끝"
+    }
+
+  return Response.ok(new JsonBuilder(rows).toString()).build();
+}
+
+---------------------Comment 남기기-----------------------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.atlassian.jira.issue.fields.CustomField
+import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+import groovy.transform.BaseScript
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+import groovy.transform.BaseScript
+import com.atlassian.jira.issue.Issue
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+@BaseScript FieldBehaviours fieldBehaviours
+Issue issues  = issue
+def issueKey =  issues.getKey()
+def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser()
+def commentManager = ComponentAccessor.commentManager
+String userId = currentUser.getUsername()
+log.debug(userId)
+def rt=[:]
+
+def getUserSubcontrator(String userId){
+    def url = getBaseUrl() + "/rest/scriptrunner/latest/custom/userSubcontractCheck?username=$userId"
+    def http = new HTTPBuilder(url)
+    http.request(GET) {
+        requestContentType = ContentType.JSON
+        response.success = { resp, JSON ->
+            return JSON
+        }
+        response.failure = { resp ->
+            return "Request failed with status ${resp.status}"
+        }
+    }
+}
+def result = getUserSubcontrator(userId)
+log.debug(result.items.value[0])
+if ( result.items.value[0] == "Y" && cfValues['Open/Draft']?.value == 'Open' ){
+    log.debug("Yes")
+    commentManager = commentManager.create(issue, currentUser, "[자동Comment] Jira issue가 Pre-Open으로 Create되었습니다. 현장관리자의 Cunfirm이 필요합니다.", true)
+    true
+}
+
+import com.atlassian.jira.issue.Issue
+
+Issue issues  = issue
+def issueKey =  issues.getKey()
+
+def createPLMIssue(String issuekey){
+    def url = getBaseUrl() + "/rest/scriptrunner/latest/custom/createIssueToPLM?issuekey=$issuekey"
+    def http = new HTTPBuilder(url)
+    http.request(GET) {
+        requestContentType = ContentType.JSON
+        response.success = { resp, JSON ->
+            return JSON
+        }
+        response.failure = { resp ->
+            return "Request failed with status ${resp.status}"
+        }
+    }
+}
+
+
+----------------------Option data setting 옵션 내용 설정---------------------------------
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+import com.atlassian.jira.component.ComponentAccessor
+
+def devVerfField = getFieldById("customfield_10822") // 개발/검증구분 필드
+def OpenDraft = getFieldById("customfield_10841") // Open/Draft 필드
+def optionsManager = ComponentAccessor.getOptionsManager()
+def customFieldManager = ComponentAccessor.getCustomFieldManager()
+
+// 개발/검증구분 필드 data setting
+def devVerfFieldId = customFieldManager.getCustomFieldObject(devVerfField.getFieldId())
+def devVerfconfig = devVerfFieldId.getRelevantConfig(getIssueContext())
+def devVerfOptionsOriginal = optionsManager.getOptions(devVerfconfig)
+def devVerfValue = devVerfOptionsOriginal.findAll { it.value in ['Dev.', 'Verf.'] }
+devVerfField.setFieldOptions(devVerfValue)
+
+// Open/Draft 필드 data setting
+def OpenDraftFieldId = customFieldManager.getCustomFieldObject(OpenDraft.getFieldId())
+def OpenDraftconfig = OpenDraftFieldId.getRelevantConfig(getIssueContext())
+def OpenDraftOptionsOriginal = optionsManager.getOptions(OpenDraftconfig)
+def OpenDraftValue = OpenDraftOptionsOriginal.findAll { it.value in ['Open', 'Draft'] }
+OpenDraft.setFieldOptions(OpenDraftValue)
+
+
+
+import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.component.ComponentAccessor
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+//def issueKey = "QI2303220063701001-82"
+//def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+
+def myStatus = issue.getStatus().getSimpleStatus().getName().toLowerCase()
+log.debug(myStatus)
+Issue issues  = issue
+def issueKey =  issues.getKey()
+
+def getPlmStatus(String issuekey){
+    def url = getBaseUrl() + "/rest/scriptrunner/latest/custom/plmstatusinfo?issuekey=$issuekey"
+    def http = new HTTPBuilder(url)
+    //def http = new HTTPBuilder('http://10.40.86.186/Windchill/jira/plm/getDefectJiraIssueKey.do?jiraIssueKey=QI2303220063701001-82')
+    http.request(GET) {
+        requestContentType = ContentType.JSON
+        response.success = { resp, JSON ->
+            
+            return JSON
+        }
+        response.failure = { resp ->
+            return "Request failed with status ${resp.status}"
+        }
+    }
+}
+
+
+def result = getPlmStatus(issueKey)
+def resultData = result.STATUS.toLowerCase()
+if ( resultData == "resolve" ){
+    resultData == "resolved"
+}
+log.debug(resultData)
+if ( myStatus == resultData ){
+    log.debug("pass")
+    return true
+}else{
+    log.debug("fail")
+    return false
+}
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.config.database.DatabaseConfigurationManager
+import com.atlassian.jira.config.database.JdbcDatasource
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.json.JsonBuilder
+import groovy.sql.GroovyRowResult
+import groovy.sql.Sql
+import groovy.transform.BaseScript
+import com.onresolve.scriptrunner.db.DatabaseUtil
+
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+import java.sql.Driver
+
+@BaseScript CustomEndpointDelegate delegate
+
+eventQisTestIteminfo(httpMethod:"GET"){
+    MultivaluedMap queryParams->
+  def query=queryParams.getFirst("query")as String
+    def fqid=queryParams.getFirst("fqid")as String 
+    def rt=[:]
+
+  //def driver=Class.forName('oracle.jdbc.OracleDriver').newInstance()as Driver
+  //def props=new Properties()
+    
+    //props.setProperty("user","cpcop")
+    //props.setProperty("password","cpcdev12")
+  //def conn=driver.connect("jdbc:oracle:thin:@//10.40.86.188:1625/cpcex",props)
+        
+    //def sql=new Sql(conn)
+
+  try{
+        DatabaseUtil.withSql('RESEARCH') { sql ->
+            def rows = sql.rows("select so.itemid, so.itemnameeng, so.unitid from QISTESTITEMINFO so inner join QISTESTUNITINFO sp on sp.unitid=so.unitid where so.useyn='Y' and sp.nameeng like ?.Q ", [Q:"%${fqid}%".toString()])
+            rt = [
+                items : rows.collect { GroovyRowResult row ->
+                    [
+                        value:row.get("itemnameeng"),
+                        html:row.get("itemnameeng").replaceAll(/(?i)$query/) { "<b>${it}</b>" },
+                        label:row.get("itemnameeng"),                                
+                    ]
+                },
+                total:rows.size(),
+                footer: "Choose 시험항목(${rows.size()})... "            
+        ]
+        }
+        //sql
+        //def rows = sql.rows("select so.itemid, so.itemnameeng, so.unitid from QISTESTITEMINFO so inner join QISTESTUNITINFO sp on sp.unitid=so.unitid where sp.nameeng like ?.Q ", [Q:"%${fqid}%".toString()])
+        
+             
+        
+  }finally{
+        //sql.close()
+        //conn.close()
+    }
+
+  return Response.ok(new JsonBuilder(rt).toString()).build();
+}
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.config.database.DatabaseConfigurationManager
+import com.atlassian.jira.config.database.JdbcDatasource
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.json.JsonBuilder
+import groovy.sql.GroovyRowResult
+import groovy.sql.Sql
+import groovy.transform.BaseScript
+
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+import java.sql.Driver
+
+@BaseScript CustomEndpointDelegate delegate
+
+eventQisTestIteminfo(httpMethod:"GET"){
+    MultivaluedMap queryParams->
+  def query=queryParams.getFirst("query")as String
+    def fqid=queryParams.getFirst("fqid")as String 
+    def rt=[:]
+
+  def driver=Class.forName('oracle.jdbc.OracleDriver').newInstance()as Driver
+  def props=new Properties()
+    
+    props.setProperty("user","cpcop")
+    props.setProperty("password","cpcdev12")
+  def conn=driver.connect("jdbc:oracle:thin:@//10.40.86.188:1625/cpcex",props)
+        
+    def sql=new Sql(conn)
+
+  try{
+        sql
+        //def rows = sql.rows("select so.itemid, so.itemnameeng, so.unitid from QISTESTITEMINFO so inner join QISTESTUNITINFO sp on sp.unitid=so.unitid where sp.nameeng like ?.Q ", [Q:"%${fqid}%".toString()])
+        def rows = sql.rows("select so.itemid, so.itemnameeng, so.unitid from QISTESTITEMINFO so inner join QISTESTUNITINFO sp on sp.unitid=so.unitid where so.useyn='Y' and sp.nameeng like ?.Q ", [Q:"%${fqid}%".toString()])
+             
+        rt = [
+            items : rows.collect { GroovyRowResult row ->
+                [
+                    value:row.get("itemnameeng"),
+                    html:row.get("itemnameeng").replaceAll(/(?i)$query/) { "<b>${it}</b>" },
+                    label:row.get("itemnameeng"),                                
+                ]
+            },
+            total:rows.size(),
+            footer: "Choose 시험항목(${rows.size()})... "            
+        ]
+  }finally{
+        sql.close()
+        conn.close()
+    }
+
+  return Response.ok(new JsonBuilder(rt).toString()).build();
+}
+
+-----------------------------------------Status Change---------------------------------------------
+import com.opensymphony.workflow.InvalidInputException
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.atlassian.jira.issue.fields.CustomField
+import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+import groovy.transform.BaseScript
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+import groovy.transform.BaseScript
+import com.atlassian.jira.issue.Issue
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.bc.issue.IssueService
+import com.atlassian.jira.issue.IssueInputParameters
+import com.atlassian.jira.workflow.TransitionOptions
+import com.atlassian.jira.workflow.WorkflowTransitionUtil
+import com.atlassian.jira.workflow.WorkflowTransitionUtilImpl
+import com.atlassian.jira.util.JiraUtils
+import com.atlassian.jira.user.util.UserManager
+import com.atlassian.jira.user.ApplicationUser
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+@BaseScript FieldBehaviours fieldBehaviours
+Issue issues  = issue
+def issueKey =  issues.getKey()
+def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser()
+def commentManager = ComponentAccessor.commentManager
+String userId = currentUser.getUsername()
+log.debug(userId)
+
+def customFieldManager = ComponentAccessor.customFieldManager
+def issueManager = ComponentAccessor.issueManager
+def issueM = issueManager.getIssueByCurrentKey(issueKey)
+def issueService = ComponentAccessor.issueService
+def workflowManager = ComponentAccessor.workflowManager
+def myStatus = issue.getStatus().getSimpleStatus().getName().toLowerCase()
+def workflowTransitionUtil = (WorkflowTransitionUtil)JiraUtils.loadComponent(WorkflowTransitionUtilImpl.class)
+def user = ComponentAccessor.userManager.getUserByName("plmif")
+
+def getUserSubcontrator(String userId){
+    def url = getBaseUrl() + "/rest/scriptrunner/latest/custom/userSubcontractCheck?username=$userId"
+    def http = new HTTPBuilder(url)
+    http.request(GET) {
+        requestContentType = ContentType.JSON
+        response.success = { resp, JSON ->
+            return JSON
+        }
+        response.failure = { resp ->
+            return "Request failed with status ${resp.status}"
+        }
+    }
+}
+
+def subConResult = getUserSubcontrator(userId)
+
+log.debug(subConResult)
+log.debug(subConResult.items.value[0])
+
+def cf = customFieldManager.getCustomFieldObject("customfield_10841")
+def cfVlaues = issue.getCustomFieldValue(cf).toString()
+int workflowActionId
+log.debug("커스텀필드결과는" + cfVlaues)
+log.debug(cfVlaues.getClass())
+if ( subConResult.items.value[0] == "Y" && cfVlaues == 'Open' ){
+    workflowActionId = 261
+}else if ( subConResult.items.value[0] != "Y" && cfVlaues == 'Open' ){
+    workflowActionId = 301
+}else if ( subConResult.items.value[0] != "Y" && cfVlaues == 'Draft' ){
+    workflowActionId = 331
+    //commentManager = commentManager.create(issue, currentUser, "[자동Comment] Jira issue가 Pre-Open으로 Create되었습니다. 현장관리자의 Cunfirm이 필요합니다.", true)
+}
+
+log.debug(workflowActionId)
+log.debug(issue.id)
+log.debug(issueM)
+log.debug(issue)
+log.debug(myStatus)
+log.debug(user.getKey())
+log.debug(currentUser.getKey())
+
+try{
+    workflowTransitionUtil.setIssue(issue)
+    workflowTransitionUtil.setUserkey(currentUser.getKey())
+    workflowTransitionUtil.setAction(workflowActionId)
+    workflowTransitionUtil.validate()
+    workflowTransitionUtil.progress()
+    log.debug(workflowTransitionUtil.validate())
+    log.debug(workflowTransitionUtil.progress())
+}catch(Exception e){
+    throw new InvalidInputException(e.getMessage())
+}
+
+
+/*
+def issueInputParameters = issueService.newIssueInputParameters()
+issueInputParameters.setSkipScreenCheck(true)
+issueInputParameters.setComment("이슈가 ${myStatus}로 생성되었습니다.")
+def transitionValidationResult = issueService.validateTransition(currentUser, issue.id, workflowActionId, issueInputParameters)
+assert transitionValidationResult.valid: transitionValidationResult.errorCollection
+def transitionResult = issueService.transition(currentUser, transitionValidationResult)
+assert transitionResult.valid: transitionResult.errorCollection
+*/
+
+
+----------------------------이슈타입 생성 제한----------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.security.roles.ProjectRoleManager
+
+import static com.atlassian.jira.issue.IssueFieldConstants.ISSUE_TYPE
+
+def projectRoleManager = ComponentAccessor.getComponent(ProjectRoleManager)
+def allIssueTypes = ComponentAccessor.constantsManager.allIssueTypeObjects
+
+def user = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+def issueTypeField = getFieldById(ISSUE_TYPE)
+
+def remoteUsersRoles = projectRoleManager.getProjectRoles(user, issueContext.projectObject)*.name
+def availableIssueTypes = []
+
+if ("일반사용자" in remoteUsersRoles || "품질관리자" in remoteUsersRoles) {
+    availableIssueTypes.addAll(allIssueTypes.findAll { it.name in ["DEFECT_VD_To_PLM", "DEFECT_NW_To_PLM", "DEFECT_NW_To_PLM", "DEFECT_MOBILE_To_PLM"] })
+} else if("Administrators" in remoteUsersRoles){
+    availableIssueTypes.addAll(allIssueTypes)
+}
+
+issueTypeField.setFieldOptions(availableIssueTypes)
+
+-------------------------내용 업데이트 및 Option 값 변경------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.atlassian.jira.issue.fields.CustomField
+import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+import groovy.transform.BaseScript
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+import groovy.transform.BaseScript
+import com.atlassian.jira.issue.Issue
+import com.onresolve.scriptrunner.runner.util.UserMessageUtil
+import com.atlassian.jira.workflow.WorkflowTransitionUtil
+import com.atlassian.jira.workflow.WorkflowTransitionUtilImpl
+import com.atlassian.jira.util.JiraUtils
+import com.atlassian.jira.user.util.UserManager
+import com.atlassian.jira.user.ApplicationUser
+import com.onresolve.scriptrunner.runner.util.UserMessageUtil
+import com.atlassian.jira.event.type.EventDispatchOption
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+@BaseScript FieldBehaviours fieldBehaviours
+Issue issues  = issue
+def issueKey =  issues.getKey()
+
+def customFieldManager = ComponentAccessor.getCustomFieldManager()
+def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser()
+def commentManager = ComponentAccessor.commentManager
+def workflowTransitionUtil = (WorkflowTransitionUtil)JiraUtils.loadComponent(WorkflowTransitionUtilImpl.class)
+def issueStatus = issue.getStatus().getSimpleStatus().getName().toLowerCase()
+String userId = currentUser.getUsername()
+log.debug(userId)
+log.debug(issueStatus)
+
+def issueMgr = ComponentAccessor.getIssueManager();
+def caseCode = customFieldManager.getCustomFieldObject("customfield_10217")
+def openDraft = customFieldManager.getCustomFieldObject("customfield_10841")
+def openDraftConfig = openDraft.getRelevantConfig(issue)
+log.debug(caseCode)
+log.debug(openDraft)
+
+def createPLMIssue(String issuekey){
+    def url = getBaseUrl() + "/rest/scriptrunner/latest/custom/createIssueToPLM?issuekey=$issuekey"
+    def http = new HTTPBuilder(url)
+    http.request(GET) {
+        requestContentType = ContentType.JSON
+        response.success = { resp, JSON ->
+            return JSON
+        }
+        response.failure = { resp ->
+            return "Request failed with status ${resp.status}"
+        }
+    }
+}
+
+if (!issueStatus.contains("pre")){
+    def createIssue = createPLMIssue(issueKey)
+    log.debug("전체 내용 : " + createIssue)
+    log.debug(createIssue.getClass())
+    try{
+        def jsonSlurper = new JsonSlurper()
+        def createIssueResult = jsonSlurper.parseText(createIssue.MESSAGE)
+        log.debug("1 : " + createIssueResult.defectCode)
+        def defectCode = createIssueResult.defectCode
+        log.debug("2 : " + defectCode)
+            if (createIssueResult.defectCode.contains("DRP")){
+                commentManager = commentManager.create(issue, currentUser, "DRAFT로 이슈가 생성되었습니다. 담당자님 확인 부탁 드립니다.", true)
+                UserMessageUtil.success('Changed Status Draft(PLM에 이슈가 Draft로 생성되어 Draft로 변경되었습니다.')
+                workflowTransitionUtil.setIssue(issue)
+                workflowTransitionUtil.setUserkey(currentUser.getKey())
+                workflowTransitionUtil.setAction(191)
+                workflowTransitionUtil.validate()
+                workflowTransitionUtil.progress()
+                issue.setCustomFieldValue(caseCode, defectCode)
+                def openDraftValue = ComponentAccessor.optionsManager.getOptions(openDraftConfig)?.find {
+                    it.value == "Draft"
+                }
+                log.debug(openDraftValue)
+                log.debug(openDraftValue.getClass())
+                issue.setCustomFieldValue(openDraft, openDraftValue)
+                issueMgr.updateIssue(currentUser, issue, EventDispatchOption.DO_NOT_DISPATCH, false);
+            }else{
+                commentManager = commentManager.create(issue, currentUser, "Open으로 이슈가 생성되었습니다. 담당자님 확인 부탁 드립니다.", true)
+                issue.setCustomFieldValue(caseCode, defectCode)
+                def openDraftValue = ComponentAccessor.optionsManager.getOptions(openDraftConfig)?.find {
+                    it.value == "Open"
+                }
+                issue.setCustomFieldValue(openDraft, openDraftValue)
+                issueMgr.updateIssue(currentUser, issue, EventDispatchOption.DO_NOT_DISPATCH, false);
+            }
+            
+    } catch (Exception e) {
+        log.debug("Exception: ${e}")
+        println("Exception: ${e}")
+    }
+}else{
+    log.debug("Pre상태로 Issue생성되어 PLM에 이슈 생성 요청하지 않음.")
+}
+
+ComponentAccessor.getApplicationProperties().getString("jira.baseurl") + 
+
+---------------------------User picker field 직접생성-----------------------------------------
+import com.atlassian.jira.avatar.Avatar
+import com.atlassian.jira.bc.user.search.UserSearchParams
+import com.atlassian.jira.bc.user.search.UserSearchService
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.user.UserFilter
+import com.onresolve.scriptrunner.canned.jira.fields.model.PickerOption
+
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+def userSearchService = ComponentAccessor.getComponent(UserSearchService)
+def userManager = ComponentAccessor.userManager
+def avatarService = ComponentAccessor.avatarService
+def authenticationContext = ComponentAccessor.jiraAuthenticationContext
+def groupManager = ComponentAccessor.groupManager
+
+search = { String inputValue ->
+    def currentUser = authenticationContext.getLoggedInUser()
+    //def currentUser = userManager.getUserByName("kayinkr")
+
+    def groups = groupManager.getGroupNamesForUser(currentUser) 
+    ArrayList<String> resGroups = []
+
+    def mLen = 255
+    def aGroup = ""
+    for(group in groups){
+        if(group.indexOf("jira")==-1){ 
+            if(group.length() <= mLen ){
+                mLen = group.length()
+                aGroup = group
+            }
+        }
+    }
+    if(aGroup!="") resGroups.add(aGroup)
+    //관리자 계정일 경우 jira계정 모두 표시    
+    if(resGroups.size()==0) resGroups.add("jira-software-users")
+    log.debug(groupManager.getUsersInGroup("jira-software-users"))
+
+    def userFilter = new UserFilter(true, null, resGroups)
+    def userSearchParams = new UserSearchParams.Builder().allowEmptyQuery(true).filter(userFilter).maxResults(null).build()
+
+    userSearchService.findUsers(inputValue, userSearchParams)
+}
+
+getItemFromId = { String id ->
+    userManager.getUserByKey(id)
+}
+
+renderItemViewHtml = { ApplicationUser user ->
+    user.displayName
+}
+
+renderItemTextOnlyValue = renderItemViewHtml
+
+toOption = { ApplicationUser user, Closure<String> highlight ->
+    def remoteUser = authenticationContext.loggedInUser
+
+    new PickerOption(
+        value: user.key,
+        label: user.displayName,
+        html: highlight(user.displayName, false),
+        icon: avatarService.getAvatarURL(remoteUser, user, Avatar.Size.SMALL)?.toString()
+    )
+}
+
+--------------------------------------이메일 보내기 ----------------------------------------------
+import com.atlassian.mail.Email;
+import com.atlassian.mail.server.MailServerManager;
+import com.atlassian.mail.server.SMTPMailServer;
+//import com.atlassian.jira.ComponentManager
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.component.ComponentAccessor
+import groovy.json.JsonSlurper
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+def activeUser = ComponentAccessor.userManager.getUserByName("b007.lee")
+def userName = activeUser.getDisplayName()
+log.debug(userName)
+
+def group = ComponentAccessor.groupManager
+def users = group.getUsersInGroup("jira-administrators")
+
+log.debug(users)
+def userEmailArray = []
+for ( def user in users ){
+    userEmailArray.add(user.getEmailAddress())
+}
+log.debug(userEmailArray)
+log.debug(userEmailArray.join(","))
+def emailAddreses = userEmailArray.join(",")
+def subject = "[자동발신]Jira Active 승인 요청 드립니다."
+def tmpemailAddr = "joshua1.lee@partner.sec.co.kr"
+def body = """
+            <html>
+            <head>
+            </head>
+            <body>
+            [자동발신]Jira Active 승인 요청 안내 드립니다.<br>
+            아이디 : XXX<br>
+            이  름 : XXX<br>
+            사용자의 Active 승인을 요청 드립니다."""
+
+
+def sendEmail(String emailAddr, String subject, String body) {
+    SMTPMailServer mailServer = ComponentAccessor.getMailServerManager().getDefaultSMTPMailServer();
+    if (mailServer) {
+        Email email = new Email(emailAddr);
+        ClassLoader threadClassLoader = Thread.currentThread().getContextClassLoader()
+        Thread.currentThread().setContextClassLoader(SMTPMailServer.class.classLoader)
+        email.setMimeType("text/html");
+        email.setSubject(subject);
+        email.setBody(body);
+        mailServer.send(email);
+        Thread.currentThread().setContextClassLoader(threadClassLoader)
+        return email.setBody(body).toString()
+    } else {
+    // Problem getting the mail server from JIRA configuration, log this error
+    }
+}
+
+sendEmail(tmpemailAddr, subject, body)
+def rt = [:]
+rt.result = "success"
+rt.user = userName
+log.debug(rt)
+
+-------------------------Option에서 값 Change 하는 방법 --------------------------------------------
+issue.setCustomFieldValue(caseCode, defectCode)
+def openDraftValue = ComponentAccessor.optionsManager.getOptions(openDraftConfig)?.find {
+  it.value == "Draft"
+}
+log.debug(openDraftValue)
+log.debug(openDraftValue.getClass())
+issue.setCustomFieldValue(openDraft, openDraftValue)
+issueMgr.updateIssue(currentUser, issue, EventDispatchOption.DO_NOT_DISPATCH, false)
+
+--------------------------jira api post로 보내기--------------------------------------------------
+public void post(String requestURL, String jsonMessage) {
+     try {
+         HttpClient client = HttpClientBuilder.create().build(); // HttpClient 생성
+         HttpPost postRequest = new HttpPost(requestURL); //POST 메소드 URL 새성 
+         postRequest.setHeader("Accept", "application/json");
+         postRequest.setHeader("Connection", "keep-alive");
+         postRequest.setHeader("Content-Type", "application/json");
+         postRequest.addHeader("x-api-key", RestTestCommon.API_KEY); //KEY 입력 
+         //postRequest.addHeader("Authorization", token); // token 이용시
+
+         postRequest.setEntity(new StringEntity(jsonMessage)); //json 메시지 입력 
+
+         HttpResponse response = client.execute(postRequest);
+
+         //Response 출력
+         if (response.getStatusLine().getStatusCode() == 200) {
+             ResponseHandler<String> handler = new BasicResponseHandler();
+             String body = handler.handleResponse(response);
+             System.out.println(body);
+         } else {
+             System.out.println("response is error : " + response.getStatusLine().getStatusCode());
+         }
+     } catch (Exception e){
+         System.err.println(e.toString());
+     }
+ }
+ ----------------------jira post방식 restapi------------------------------------------------------
+ import com.atlassian.mail.Email;
+import com.atlassian.mail.server.MailServerManager;
+import com.atlassian.mail.server.SMTPMailServer;
+//import com.atlassian.jira.ComponentManager
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.component.ComponentAccessor
+import groovy.json.JsonBuilder
+import groovy.sql.Sql
+import java.sql.Driver
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.sql.GroovyRowResult
+import groovy.sql.Sql
+import groovy.transform.BaseScript
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+import groovy.json.JsonSlurper
+import groovy.json.JsonParserType
+import groovy.json.JsonOutput
+import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.databind.ObjectMapper
+import java.util.HashMap
+import java.util.Map
+import org.apache.http.HttpEntity
+import org.apache.http.HttpResponse
+import org.apache.http.client.methods.HttpPut
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.StringEntity
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.impl.client.HttpClientBuilder
+import org.apache.http.util.EntityUtils
+import org.apache.http.impl.execchain.HttpResponseProxy
+import org.apache.http.impl.client.BasicResponseHandler
+import org.apache.http.client.ResponseHandler
+import com.atlassian.jira.util.json.JSONObject
+import org.apache.http.client.entity.UrlEncodedFormEntity
+import groovy.json.JsonSlurper
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+def issueKey = "QI2303220063701001-391"
+def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+
+def allCustomFields = ComponentAccessor.getCustomFieldManager()
+def allObjects = allCustomFields.getCustomFieldObjects()
+//log.debug(allObjects)
+def issueStatus = issue.getStatus().getSimpleStatus().getName()
+def rtnIssue = [:]
+def rtnIssueName = [:]
+def customfieldslist = [:]
+def customfieldslistName = [:]
+def customfieldValue = ""
+
+rtnIssue.jiraIssuekey = issue.key
+rtnIssue.status = issueStatus
+for (def customfield in allObjects){
+        if ( customfield.getId() != "customfield_10000" ){
+            if ( customfield.getValue(issue) != null ){
+                customfieldValue = customfield.getValue(issue)
+                rtnIssue["customfield"+customfield.getId().toString().split("_")[1]] = customfieldValue
+            }
+        
+        customfieldslistName[customfield.getName()] = customfieldValue
+    }  
+}
+//customfieldslist.customfield = customfieldId
+
+rtnIssueName.customfieldslistName = customfieldslistName
+//log.debug("issue >> " + rtnIssue)
+//log.debug("issueName >> " + rtnIssueName)
+
+log.debug(rtnIssue)
+def result = sendDataToPlm(rtnIssue, log)
+log.debug("api result " + result)
+JSONObject jsonBody = new JSONObject(rtnIssue);
+log.debug("json으로 데이터 보내는결과 " + jsonBody)
+
+def sendDataToPlm(data, log){
+    try {
+        def httpClient = HttpClients.createDefault() // HttpClient 생성
+        HttpPost postRequest = new HttpPost("http://10.40.86.186/Windchill/jira/plm/syncDefectJiraPost.do"); //POST 메소드 URL 새성 
+        postRequest.setHeader("Accept", "application/json");
+        postRequest.setHeader("Connection", "keep-alive");
+        postRequest.setHeader("Content-Type", "application/json");
+         //postRequest.addHeader("x-api-key", RestTestCommon.API_KEY); //KEY 입력 
+         //postRequest.addHeader("Authorization", token); // token 이용시
+
+        JSONObject jsonBody = new JSONObject(data);
+        postRequest.setEntity(new StringEntity(JsonOutput.toJson(jsonBody.toString()), ContentType.APPLICATION_JSON)); //json 메시지 입력 
+        log.debug(JsonOutput.toJson(jsonBody.toString()))
+        //HttpEntity postEntity = new UrlEncodedFormEntity(data, "UTF-8");
+        //httpPost.setEntity(postEntity);
+        HttpResponse response = httpClient.execute(postRequest);
+         //Response 출력
+        if (response.getStatusLine().getStatusCode() >= 200 && response.getStatusLine().getStatusCode() <= 300) {
+            ResponseHandler<String> handler = new BasicResponseHandler();
+            String body = handler.handleResponse(response);
+            return body
+        } else {
+            return log.debug("response is error : " + response.getStatusLine().getStatusCode());
+            //return response
+        }
+     } catch (Exception e){
+         log.error(e);
+     }
+}
+
+
+//log.debug("testttt" + JsonOutput.toJson(rtnIssue))
+
+
+
+
+
+
+def activeUser = ComponentAccessor.userManager.getUserByName("b007.lee")
+def userName = activeUser.getDisplayName()
+log.debug(userName)
+
+def group = ComponentAccessor.groupManager
+def users = group.getUsersInGroup("jira-administrators")
+
+log.debug(users)
+def userEmailArray = []
+for ( def user in users ){
+    userEmailArray.add(user.getEmailAddress())
+}
+log.debug(userEmailArray)
+log.debug(userEmailArray.join(","))
+def emailAddreses = userEmailArray.join(",")
+def subject = "[자동발신]Jira Active 승인 요청 드립니다."
+def tmpemailAddr = "joshua1.lee@partner.sec.co.kr"
+def body = """
+            <html>
+            <head>
+            </head>
+            <body>
+            [자동발신]Jira Active 승인 요청 안내 드립니다.<br>
+            아이디 : ${activeUser}<br>
+            이  름 : ${userName}<br>
+            사용자의 Active 승인을 요청 드립니다."""
+
+
+def sendEmail(String emailAddr, String subject, String body) {
+    SMTPMailServer mailServer = ComponentAccessor.getMailServerManager().getDefaultSMTPMailServer();
+    if (mailServer) {
+        Email email = new Email(emailAddr);
+        ClassLoader threadClassLoader = Thread.currentThread().getContextClassLoader()
+        Thread.currentThread().setContextClassLoader(SMTPMailServer.class.classLoader)
+        email.setMimeType("text/html");
+        email.setSubject(subject);
+        email.setBody(body);
+        mailServer.send(email);
+        Thread.currentThread().setContextClassLoader(threadClassLoader)
+        return email.setBody(body).toString()
+    } else {
+    // Problem getting the mail server from JIRA configuration, log this error
+    }
+}
+
+//sendEmail(tmpemailAddr, subject, body)
+def rt = [:]
+rt.result = "success"
+rt.user = userName
+log.debug(rt)
+
+------------------------------------post body에 담아서 보내기-------------------------------------import groovyx.net.http.HTTPBuilder
+import static groovyx.net.http.ContentType.*
+import groovyx.net.http.ContentType
+import static groovyx.net.http.Method.*
+import groovy.json.JsonSlurper
+import net.sf.json.groovy.JsonSlurper
+
+def http = new HTTPBuilder('http://10.40.86.186/Windchill/jira/plm/syncDefectJiraPost.do')
+  http.request(POST) {
+    requestContentType = ContentType.JSON
+    body = jsonBody.toString()
+    
+  response.success = { resp, JSON ->
+    log.debug(resp.status)
+    return JSON
+    }
+    
+  response.failure = { resp ->
+        return "Request failed with status ${resp.status}"
+        }
+    }
+  
+-------------------------------------api postfunction완료-----------------------------------------
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.fields.CustomField
+import groovy.json.JsonBuilder
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.sql.GroovyRowResult
+import groovy.transform.BaseScript
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+import groovy.json.JsonSlurper
+import groovy.json.JsonParserType
+import groovy.json.JsonOutput
+import org.apache.http.HttpEntity
+import org.apache.http.HttpResponse
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.StringEntity
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.impl.client.HttpClientBuilder
+import org.apache.http.util.EntityUtils
+import org.apache.http.impl.execchain.HttpResponseProxy
+import org.apache.http.impl.client.BasicResponseHandler
+import org.apache.http.client.ResponseHandler
+import com.atlassian.jira.util.json.JSONObject
+import groovy.json.JsonSlurper
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+import groovyx.net.http.HTTPBuilder
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+//def issueKey = "QI2303220063701001-391"
+//def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+
+//def issueKey = "QI2303220063701001-386"
+//def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+def issueStatus = issue.getStatus().getSimpleStatus().getName()
+def allCustomFields = ComponentAccessor.getCustomFieldManager()
+def allObjects = allCustomFields.getCustomFieldObjects()
+//log.debug(allObjects)
+def customfieldValue = ""
+
+def rtnIssueResult(allObjects, issue, issueStatus, log){
+    def rtnIssue = [:]
+    rtnIssue.jiraIssueKey = issue.key
+    rtnIssue.status = issueStatus
+    for (def customfield in allObjects){
+        if ( customfield.getValue(issue) != null && customfield.getId() != "customfield_10000" ){
+            customfieldValue = customfield.getValue(issue)
+            def newValueList = []
+            if ( customfieldValue instanceof List ){
+                for (def customValue in customfieldValue){
+                    if ( customValue.getClass() == String ){
+                        def userName = ComponentAccessor.getUserManager().getUserByKey(customValue).getName()
+                        newValueList.add(userName)
+                    }else{
+                        newValueList.add(customValue.getName())
+                    }            
+                }
+                rtnIssue[customfield.getId().toString().replace("_", "")] = newValueList
+            }
+            else if(customfield.getId() == "customfield_10609" ){
+                rtnIssue[customfield.getId().toString().replace("_", "")] = customfieldValue[null]
+                rtnIssue[customfield.getId().toString().replace("_", "")+"Sub"] = customfieldValue["1"]
+            }else{
+                rtnIssue[customfield.getId().toString().replace("_", "")] = customfieldValue
+            }
+                
+        }
+
+        //customfieldslistName[customfield.getName()] = customfieldValue
+        
+    }
+    return rtnIssue
+}
+
+def sendDataToPlm(data, log){
+    try {
+        def httpClient = HttpClients.createDefault() // HttpClient 생성
+        HttpPost postRequest = new HttpPost("http://10.40.86.186/Windchill/jira/plm/syncDefectJiraPost.do"); //POST 메소드 URL 새성 
+        postRequest.setHeader("Accept", "application/json");
+        postRequest.setHeader("Connection", "keep-alive");
+        postRequest.setHeader("Content-Type", "application/json");
+         //postRequest.addHeader("x-api-key", RestTestCommon.API_KEY); //KEY 입력 
+         //postRequest.addHeader("Authorization", token); // token 이용시
+         
+        JSONObject jsonBody = new JSONObject(data);
+        log.debug(jsonBody.toString())
+        
+        postRequest.setEntity(new StringEntity(jsonBody.toString(), ContentType.APPLICATION_JSON)); //json 메시지 입력
+        
+        log.debug(JsonOutput.toJson(jsonBody.toString()))
+        HttpResponse response = httpClient.execute(postRequest);
+     
+        //Response 출력
+        if (response.getStatusLine().getStatusCode() >= 200 && response.getStatusLine().getStatusCode() <= 300) {
+            log.debug("여기 왔나요?")
+            //log.debug(JsonOutput.toJson(jsonBody.toString()))
+            ResponseHandler<String> handler = new BasicResponseHandler();
+            String body = handler.handleResponse(response);
+            return body
+        } else {
+            return log.debug("response is error : " + response.getStatusLine().getStatusCode());
+            //return response
+        }
+     } catch (Exception e){
+         log.error(e);
+     }
+}
+
+rtnIssue = rtnIssueResult(allObjects, issue, issueStatus, log)
+log.debug(rtnIssue)
+def result = sendDataToPlm(rtnIssue, log)
+log.debug("api result " + result)
+log.debug("json으로 데이터 보내는결과 " + new JSONObject(rtnIssue))
+
+---------------------------function 모듈화-------------------------------------------------------
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import com.atlassian.jira.workflow.WorkflowTransitionUtil
+import com.atlassian.jira.workflow.WorkflowTransitionUtilImpl
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.util.JiraUtils
+import com.onresolve.scriptrunner.runner.ScriptRunner
+import com.onresolve.scriptrunner.runner.ScriptRunnerImpl
+import org.apache.log4j.Logger
+import org.apache.log4j.Level    
+
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+//def issueKey = "QI2303220063701001-391"
+//def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+
+def scriptRoots = ScriptRunnerImpl.getPluginComponent(ScriptRunner).getRootsForDisplay()?.split(", ")?.toList()
+def scriptRootPath = ""
+if ( scriptRoots instanceof List ) {
+    scriptRootPath = scriptRoots[0]
+}
+// scripts 폴더 하위 .groovy 파일의 위치에서 해당 파일을 loading 한다. 
+evaluate(new File( scriptRootPath + "/sendDatatoPLM.groovy"))
+
+def issueStatus = issue.getStatus().getSimpleStatus().getName()
+def allCustomFields = ComponentAccessor.getCustomFieldManager()
+def allObjects = allCustomFields.getCustomFieldObjects()
+def commentManager = ComponentAccessor.commentManager
+def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser()
+def adminUser = ComponentAccessor.getUserManager().getUserByName("plmif")
+def workflowTransitionUtil = (WorkflowTransitionUtil)JiraUtils.loadComponent(WorkflowTransitionUtilImpl.class)
+log.debug(adminUser.getKey().getClass())
+log.debug(currentUser.getKey().getClass())
+def customfieldValue = ""
+def actionId = 221
+def sendData = new sendDatatoPLM()
+
+rtnIssue = sendData.rtnIssueResult( allObjects, issue, issueStatus, log )
+def result = sendData.sendDataToPlm( rtnIssue, log )
+log.debug(result)
+def finalResult = sendData.resultParser( result, log )
+def updateJira = sendData.updateJiraField( finalResult, commentManager, issue, currentUser, issueStatus, log )
+log.debug(updateJira)
+if ( updateJira == "fail"){
+    def statusChangeJira = sendData.statusChange(issue, adminUser.getKey(), actionId, workflowTransitionUtil, log)
+    log.debug(finalResult)
+}
+
+
+
+groovy파일로 모둘화 시킴
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.component.ComponentAccessor
+import groovy.json.JsonBuilder
+import groovy.sql.Sql
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.transform.BaseScript
+import javax.ws.rs.core.Response
+import groovy.json.JsonSlurper
+import groovy.json.JsonParserType
+import groovy.json.JsonOutput
+import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.databind.ObjectMapper
+import java.util.HashMap
+import java.util.Map
+import org.apache.http.HttpEntity
+import org.apache.http.HttpResponse
+import org.apache.http.client.methods.HttpPut
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.StringEntity
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.impl.client.HttpClientBuilder
+import org.apache.http.util.EntityUtils
+import org.apache.http.impl.execchain.HttpResponseProxy
+import org.apache.http.impl.client.BasicResponseHandler
+import org.apache.http.client.ResponseHandler
+import com.atlassian.jira.util.json.JSONObject
+import org.apache.http.client.entity.UrlEncodedFormEntity
+import com.onresolve.scriptrunner.runner.util.UserMessageUtil
+import com.atlassian.jira.workflow.WorkflowTransitionUtil
+import com.atlassian.jira.workflow.WorkflowTransitionUtilImpl
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.util.JiraUtils
+import com.opensymphony.workflow.util.StatusCondition
+import com.opensymphony.module.propertyset.PropertySet
+import groovy.json.JsonSlurper
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+
+def rtnIssueResult(allObjects, issue, issueStatus, log){
+    def rtnIssue = [:]
+    rtnIssue.jiraIssueKey = issue.key
+    rtnIssue.status = issueStatus
+    for (def customfield in allObjects){
+        if ( customfield.getValue(issue) != null && customfield.getId() != "customfield_10000"){
+            customfieldValue = customfield.getValue(issue)
+            def newValueList = []
+            if ( customfieldValue instanceof List ){
+                for (def customValue in customfieldValue){
+                    if ( customValue.getClass() == String ){
+                        def userName = ComponentAccessor.getUserManager().getUserByKey(customValue).getName()
+                        newValueList.add(userName)
+                    }else{
+                        newValueList.add(customValue.getName())
+                    }            
+                }
+                rtnIssue[customfield.getId().toString().replace("_", "")] = newValueList
+            }
+            else if(customfield.getId() == "customfield_10609" ){
+                rtnIssue[customfield.getId().toString().replace("_", "")] = customfieldValue[null]
+                rtnIssue[customfield.getId().toString().replace("_", "")+"Sub"] = customfieldValue["1"]
+            }
+            else{
+                rtnIssue[customfield.getId().toString().replace("_", "")] = customfieldValue
+            }
+                
+        } 
+        
+    }
+    return rtnIssue
+}
+
+def sendDataToPlm(data, log){
+    try {
+        def httpClient = HttpClients.createDefault() // HttpClient 생성
+        HttpPost postRequest = new HttpPost("http://10.40.86.186/Windchill/jira/plm/syncDefectJiraPost.do"); //POST 메소드 URL 새성 
+        postRequest.setHeader("Accept", "application/json");
+        postRequest.setHeader("Connection", "keep-alive");
+        postRequest.setHeader("Content-Type", "application/json");
+         //postRequest.addHeader("x-api-key", RestTestCommon.API_KEY); //KEY 입력 
+         //postRequest.addHeader("Authorization", token); // token 이용시
+
+        JSONObject jsonBody = new JSONObject(data);
+        //log.debug(jsonBody)
+        //postRequest.setEntity(new StringEntity(JsonOutput.toJson(jsonBody.toString()), ContentType.APPLICATION_JSON)); //json 메시지 입력
+        postRequest.setEntity(new StringEntity(jsonBody.toString(), ContentType.APPLICATION_JSON))
+        //log.debug(JsonOutput.toJson(jsonBody.toString()))
+        HttpResponse response = httpClient.execute(postRequest);
+        
+        //Response 출력
+        if (response.getStatusLine().getStatusCode() >= 200 && response.getStatusLine().getStatusCode() <= 300) {
+            log.debug("여기 왔나요?")
+            log.debug(JsonOutput.toJson(jsonBody.toString()))
+            ResponseHandler<String> handler = new BasicResponseHandler();
+            String body = handler.handleResponse(response);
+            return body
+        } else {
+            return log.debug("response is error : " + response.getStatusLine().getStatusCode());
+            //return response
+        }
+     } catch (Exception e){
+         log.error(e);
+     }
+}
+
+def resultParser(result, log){
+    def jsonSlurper = new JsonSlurper()
+    def resultChangetoMap = jsonSlurper.parseText(result)
+    log.debug("api result2 " + resultChangetoMap)
+    log.debug("result data형식 확인" + resultChangetoMap.getClass())
+    
+    def sendFinalResult = resultChangetoMap
+    log.debug(sendFinalResult)
+    log.debug(sendFinalResult.getClass())
+    return sendFinalResult
+    
+    
+}
+
+def updateJiraField(finalResult, commentManager, issue, currentUser, issueStatus, log){
+    if (finalResult.RESULT.toLowerCase() == "success"){
+        commentManager.create(issue, currentUser, "Jira와 PLM Status를 ${issueStatus}로 변경하는데 성공하였습니다.", true)
+        UserMessageUtil.success("Jira와 PLM Status를 ${issueStatus}로 변경하는데 성공하였습니다.")
+        return "success"
+    }else{
+        try{
+            def resultChangetoMap = resultParser(finalResult.MESSAGE, log)
+            def failMessage = resultChangetoMap.result.message
+
+            log.debug("해당 이슈는 { ${failMessage} } 로 인해 PLM Status를 변경하지 못 했습니다. Jira Status도 변경되지 않습니다.")
+            commentManager.create(issue, currentUser, "Jira와 PLM Status를 ${issueStatus}로 변경하는데 성공하였습니다.", true)
+            UserMessageUtil.success("해당 이슈는 { ${failMessage} } 로 인해 PLM Status를 변경하지 못 했습니다. Jira Status도 변경되지 않습니다.")
+            return "fail"
+        }catch(Exception e){
+            log.debug("Exception: ${e}")
+        }finally{
+            def resultChangetoMap = finalResult.MESSAGE
+            def failMessage = resultChangetoMap
+
+            log.debug("해당 이슈는 { ${failMessage} } 로 인해 PLM Status를 변경하지 못 했습니다. Jira Status도 변경되지 않습니다.")
+            commentManager.create(issue, currentUser, "Jira와 PLM Status를 ${issueStatus}로 변경하는데 성공하였습니다.", true)
+            UserMessageUtil.success("해당 이슈는 { ${failMessage} } 로 인해 PLM Status를 변경하지 못 했습니다. Jira Status도 변경되지 않습니다.")
+            return "fail"
+        }
+        
+    }
+}
+
+def statusChange(issue, adminUser, int actionId, workflowTransitionUtil, log){
+    workflowTransitionUtil.setIssue(issue)
+    workflowTransitionUtil.setUserkey(adminUser)
+    workflowTransitionUtil.setAction(actionId)
+    def results = workflowTransitionUtil.validate();
+    log.debug("transition 결과는??" + results)
+    if (results.hasAnyErrors()) {
+        log.error("Fast Track Transition ${issue} errors.validate ${errors.validate}")
+    }
+    workflowTransitionUtil.progress()
+    log.debug(workflowTransitionUtil)
+}
+
+----------------------------------Validation단계에서 강제 indexing---------------------------------------
+import com.atlassian.jira.issue.index.IssueIndexingService
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.util.ImportUtils
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import com.atlassian.jira.workflow.WorkflowTransitionUtil
+import com.atlassian.jira.workflow.WorkflowTransitionUtilImpl
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.util.JiraUtils
+import com.onresolve.scriptrunner.runner.ScriptRunner
+import com.onresolve.scriptrunner.runner.ScriptRunnerImpl
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+def issueManager = ComponentAccessor.getIssueManager()
+def issueIndexingService = ComponentAccessor.getComponent(IssueIndexingService)
+
+boolean wasIndexing = ImportUtils.isIndexIssues();
+ImportUtils.setIndexIssues(true);
+log.warn("Reindex issue ${issue.key} ${issue.id}")
+issueIndexingService.reIndex(issueManager.getIssueObject(issue.id));
+ImportUtils.setIndexIssues(wasIndexing);
+
+//def issueKey = "QI2303220063701001-391"
+//def issue = ComponentAccessor.issueManager.getIssueObject(issueKey)
+
+def scriptRoots = ScriptRunnerImpl.getPluginComponent(ScriptRunner).getRootsForDisplay()?.split(", ")?.toList()
+def scriptRootPath = ""
+if ( scriptRoots instanceof List ) {
+    scriptRootPath = scriptRoots[0]
+}
+// scripts 폴더 하위 .groovy 파일의 위치에서 해당 파일을 loading 한다. 
+evaluate(new File( scriptRootPath + "/sendDatatoPLM.groovy"))
+
+//def issueStatus = issue.getStatus().getSimpleStatus().getName()
+def issueStatus = "update"
+def allCustomFields = ComponentAccessor.getCustomFieldManager()
+def allObjects = allCustomFields.getCustomFieldObjects()
+def commentManager = ComponentAccessor.commentManager
+def currentUser = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser()
+def adminUser = ComponentAccessor.getUserManager().getUserByName("cpcexif")
+def workflowTransitionUtil = (WorkflowTransitionUtil)JiraUtils.loadComponent(WorkflowTransitionUtilImpl.class)
+log.debug(adminUser.getClass())
+log.debug(currentUser.getKey().getClass())
+def customfieldValue = ""
+def actionId = 231
+def sendData = new sendDatatoPLM()
+
+rtnIssue = sendData.rtnIssueResult( allObjects, issue, issueStatus, log )
+def result = sendData.sendDataToPlm( rtnIssue, log )
+log.debug(result)
+def finalResult = sendData.resultParser( result, log )
+def updateJira = sendData.updateJiraField( finalResult, commentManager, issue, adminUser, issueStatus, log, "Yes" )
+log.debug(updateJira)
+if ( updateJira == "fail"){
+    return false
+}else{
+    return true
+}
+
+---------------------------------Create custom field--------------------------
+import com.atlassian.jira.issue.customfields.CustomFieldType
+import java.util.ArrayList
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.context.JiraContextNode
+import com.atlassian.jira.issue.issuetype.IssueType
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+def customFieldManager = ComponentAccessor.getCustomFieldManager().getCustomFieldTypes()
+def customfieldtypekey = customFieldManager.getCustomFieldType("com.atlassian.jira.plugin.system.customfieldtypes:textfield")
+//CustomFieldType customfieldtypekey = CustomFieldType("com.atlassian.jira.plugin.system.customfieldtypes:textfield")
+def customfieldsearchkey = customFieldManager.getCustomFieldSearcher("com.atlassian.jira.plugin.system.customfieldtypes:textsearcher")
+List<JiraContextNode> contexts = new ArrayList<>()
+List<IssueType> issueTypes = new ArrayList<>()
+
+for (int i=2; i>0; i--){
+    def create = customFieldManager.createCustomField("temp"+i,"",customfieldtypekey,customfieldsearchkey,contexts,issueTypes)
+    def customfieldId = customFieldManager.getCustomFieldObjectByName("temp"+i)
+    if (i != 1){
+        def remove = customFieldManager.removeCustomField(customfieldId)
+        log.debug(remove)
+    }
+    log.debug(create)
+    customFieldManager.createCustomField()
+}
+
+-----------------------------cascading Option에 db값 삽입하기-------------------------------------
+def optionsManager = ComponentAccessor.getOptionsManager()
+def newDefectTypeField = customFieldManager.getCustomFieldObject("customfield_12110")
+def fieldConfig = newDefectTypeField.getRelevantConfig(issue)
+def rows 
+def rt = [:]
+def newValue = [:]
+def parentOption
+def parentOptions
+def childOption
+def childOptions
+
+DatabaseUtil.withSql('RESEARCH') { sql ->
+  rows = sql.rows("SELECT DISTINCT UPDEFECTTYPEID  FROM QISDEFECTTYPEINFO q")
+    rt = [
+            items : rows.collect { GroovyRowResult row ->
+                [
+                    value:row.get("UPDEFECTTYPEID"),
+                    html:row.get("UPDEFECTTYPEID"),
+                    label:row.get("UPDEFECTTYPEID"),                                
+                ]
+            }]
+}
+for ( def value in rt.items.value ){
+    parentOption = ComponentAccessor.getOptionsManager().getOptions(fieldConfig)?.find { it.toString() == value }
+    log.debug("123123123 " + ComponentAccessor.getOptionsManager().getOptions(fieldConfig).toString())
+    if ( parentOption == null ){
+        //issue.setCustomFieldValue(newDefectTypeField, [null:value])
+        parentOptions = optionsManager.createOption(fieldConfig, parentOption, null, value)
+        parentOption = ComponentAccessor.getOptionsManager().getOptions(fieldConfig)?.find { it.toString() == value }
+        log.debug("3333 " + parentOptions)
+    }
+    
+  DatabaseUtil.withSql('RESEARCH') { sql ->
+    rows = sql.rows("SELECT DEFECTTYPENAMEKOR FROM QISDEFECTTYPEINFO q WHERE UPDEFECTTYPEID = ?.Q", [Q:"${value}".toString()])
+    rt = [
+        items : rows.collect { GroovyRowResult row ->
+          [
+            value:row.get("DEFECTTYPENAMEKOR"),
+            html:row.get("DEFECTTYPENAMEKOR"),
+            label:row.get("DEFECTTYPENAMEKOR"),                                
+          ]
+        }]
+      }
+    for( def values in rt.items.value ) {
+      childOption = ComponentAccessor.getOptionsManager().findByParentId(parentOption?.optionId)?.find { it.toString() == values }
+            log.debug("childOption은? " + childOption)
+            if ( childOption == null ){
+                optionsManager.createOption(fieldConfig, parentOption?.optionId, 1, values)
+            }
+    }  
+}
+---------------------------------Model 검색 Query api---------------------------------
+import com.atlassian.jira.component.ComponentAccessor
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.json.JsonBuilder
+import groovy.transform.BaseScript
+
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+
+import com.onresolve.scriptrunner.db.DatabaseUtil
+
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+def log = Logger.getLogger(getClass())
+log.setLevel(Level.DEBUG)
+
+@BaseScript CustomEndpointDelegate delegate
+
+plmModelSearch(httpMethod:"GET") {  
+    MultivaluedMap queryParams->
+
+    def projectNm   = queryParams.getFirst("projectNm") as String
+    def projectCode = queryParams.getFirst("projectCode") as String
+    def modelNm     = queryParams.getFirst("modelname") as String
+    def pageNum     = queryParams.getFirst("pageNum") as String
+    def pageSize    = queryParams.getFirst("pageSize") as String    
+    def rt = [:]
+        try{
+        if ( !pageNum ) pageNum = "1"
+        if ( !pageSize ) pageSize = "10"
+        def strQuery = """
+            SELECT * FROM (
+                                SELECT  
+                                                ROW_NUMBER() OVER( ORDER BY ITEMNAME) AS NUM, 
+                                                COUNT(*) OVER() AS TOTAL,
+                                                PLMKEY, PROJECTID, PROJECTCODE, PROJECTNAME, 
+                                                ITEMNAME, ITEMSTATE , ITEMSTATEKO , ITEMSTATEEN , CURRENTMILESTONE
+                                  FROM  PLMPJTITEM P
+                 WHERE  ITEMNAME is not null  
+        """
+        def paramArry = [];
+        if ( projectNm ) {
+            strQuery += """
+                   AND   PROJECTNAME LIKE  '%'||?||'%'
+            """
+            paramArry.add(projectNm)
+        }
+        if ( projectCode ) {
+            strQuery += """
+                AND PROJECTCODE LIKE  '%'||?||'%'
+            """            
+            paramArry.add(projectCode)
+        }
+        if ( modelNm ) {
+            strQuery += """
+                AND ITEMNAME LIKE  '%'||?||'%'
+            """            
+            paramArry.add(modelNm)
+        }        
+        strQuery += """
+           )
+           WHERE num BETWEEN ? AND ?
+        """
+        
+        if ( pageNum == null || pageNum.trim() == "" ) {
+            pageNum = "1";
+        }
+        if(pageNum != "1"){
+            pageStart = ((pageNum.toInteger()-1)*pageSize.toInteger()) + 1
+            pageEnd = (pageSize.toInteger() * pageNum.toInteger()).toString()
+            paramArry.add(pageStart) 
+            paramArry.add(pageEnd)
+        }else{
+            paramArry.add(pageNum) 
+            paramArry.add(pageSize)            
+        }
+
+        log.debug("paramArry >> ${paramArry}")
+        def items = [];
+        def totalHits = 0;
+
+        def datas = DatabaseUtil.withSql('RESEARCH') { sql ->
+            //sql.rows( strQuery ,  paramArry )
+            sql.rows( strQuery ,  paramArry ).collect { row ->
+                def _item = [:];
+                _item.plmkey = row.plmkey;
+                _item.projectid = row.projectid;
+                _item.projectcode = row.projectcode;
+                _item.projectname = row.projectname;
+                _item.itemname = row.itemname;
+                _item.itemstate = row.itemstate;
+                _item.itemstateko = row.itemstateko;
+                _item.itemstateen = row.itemstateen;
+                _item.currentmilestone = row.currentmilestone;
+                items.add( _item );
+                totalHits = row.total;
+            };
+            rt = [ totalHits : totalHits , items : items ];
+        }
+        log.debug("RT >> ${rt}")
+    } catch(Exception e){
+        log.error( e );
+        rt=[:]
+    }
+    return Response.ok(new JsonBuilder(rt).toString()).build();
+}
+

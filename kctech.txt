@@ -1,0 +1,356 @@
+//-------케이씨텍
+
+설치 환경 rocky10
+
+* bitbucker 9.4.8
+ - java21, java17
+ - postgresql 15~17
+ - git 2.46.x, 2.47.x, and 2.49.x
+ - openSearch 2.11, 2.14, 2.19
+
+* bamboo 10.2
+ - java21, java17
+ - postgresql 15~17
+ - git 2.35~ 
+
+* opensearch
+
+c++ c# > window agent vs 빌드 환경
+shell script
+
+안성에서 2~3일 설치 / 작업은 화성
+화성 -> 어반스테이 동탄
+안성 -> 호텔쁠랑
+
+
+//-------
+
+- Bitbucket과 Bamboo가 서로 통신할 수 있도록 **애플리케이션 링크(Application Link)**를 설정
+
+Bitbucket: 애플리케이션 링크 설정 메뉴에서 Bamboo URL을 입력하고, 양방향 링크를 생성합니다.
+Bamboo: Bitbucket URL을 입력하여 링크 설정을 마무리합니다.
+
+
+java -jar C:\agent\atlassian-bamboo-agent-installer-10.2.6.jar http://192.168.10.11:8085/agentServer/
+
+- 윈도우 방화벽 54663포트 인바운드 추가
+
+- agent wrapper.conf 파일 내용 추가
+
+wrapper.java.additional.6=-Dfile.encoding=utf-8
+wrapper.java.additional.7=-Dsun.jnu.encoding=utf-8
+
+C:\Users\qwer\bamboo-agent-home\conf
+
+
+//---------build script
+
+@echo off
+setlocal
+
+chcp 65001
+
+echo path ${bamboo.msbuilds}
+
+set MSBUILD=${bamboo.msbuilds}
+set PROJECT_PATH=${bamboo.slnbuildpath}\WF1-WFTP1-JOB1\dotnet-winforms-examples.sln
+set CONFIGURATION=${bamboo.rbuild}
+set PLATFORM=${bamboo.cpu}
+
+echo Restoring NuGet packages...
+dotnet restore "%PROJECT_PATH%"
+if %ERRORLEVEL% NEQ 0 (
+  echo NuGet restore failed.
+  exit /b %ERRORLEVEL%
+)
+
+echo Building project...
+"%MSBUILD%" "%PROJECT_PATH%" /p:Configuration=%CONFIGURATION% /p:Platform="%PLATFORM%"
+if %ERRORLEVEL% NEQ 0 (
+  echo Build failed.
+  exit /b %ERRORLEVEL%
+)
+
+echo Build success.
+
+//----------build script
+
+@echo off
+setlocal
+
+chcp 65001
+
+set MSBUILD=${bamboo.msbuild}
+set space=${bamboo.build.working.directory}
+set cmake=${bamboo.cmake}
+
+cd %space%
+
+echo # Updating Git submodules...
+git submodule update --init --recursive
+
+if not exist build mkdir build
+cd build
+
+echo # Generating build files with CMake...
+"%cmake%" -G "Visual Studio 17 2022" -A x64 ..
+
+echo # Building the project...
+"%cmake%" --build . --config Release
+
+echo # Build finished.
+
+
+
+//---------설치
+
+1. 유저 생성
+groupadd -g 1000 atlassian
+useradd -g 1000 -u 1000 atlassian
+
+2. 패키지 설치
+yum -y install net-tools
+yum -y install nfs-utils
+yum install -y wget gcc gcc-c++ expat-devel zlib-devel tar curl-devel gettext-devel openssl-devel
+yum -y install perl-ExtUtils-MakeMaker
+
+ 1).오픈 파일 수 변경
+ -하단 Open Search 서비스 계정과 동일하게 설정
+# vi /etc/security/limits.conf
+atlassian hard nofile 65536
+atlassian soft nofile 65536
+atlassian hard nproc  65536
+atlassian soft nproc  65536
+
+3. java 설치
+tar zxvf OpenJDK17U-jdk_x64_linux_hotspot_17.0.15_6.tar.gz
+mv jdk-17.0.15+6 jdk-17015
+mv jdk-17015 /app/jdk/
+
+su - atlassian
+vi /home/atlassian/.bashrc
+ 1)//아래 내용 입력 후 저장
+	#jdk config
+	export JAVA_HOME=/app/jdk/jdk-17015
+	export PATH=$PATH:$JAVA_HOME/bin
+ 2)//적용 및 확인
+	source /home/atlassian/.bash_profile
+	java -version
+	
+4. git 설치
+mkdir /app/GIT
+cd /app/GIT
+wget https://mirrors.edge.kernel.org/pub/software/scm/git/git-2.46.2.tar.gz --no-check-certificate
+
+ 1) git 설치 폴더 생성 및 컴파일
+	tar xvf git-2.46.2.tar.gz
+	cd git-2.46.2
+	make prefix=/app/GIT/git all
+	make prefix=/app/GIT/git install
+	vi /etc/profile
+	  # Git Config
+	  export PATH=$PATH:/app/GIT/git
+	  umask 027
+
+ 2) 컴파일을 위한 모듈 설치 시 git 1.8 설치되므로 삭제
+	yum -y remove git
+	source /etc/profile
+
+5. 경로 설정 및 Alias 추가
+vi ~/.bashrc
+
+PS1="[\u@\h \$PWD]\\$ "
+
+alias bitinst="cd /app/atlassian/bitbucket"
+alias bithome="cd /app/atlassian/bitbucket-home"
+alias bitlog="tail -f /app/atlassian/bitbucket-home/log/atlassian-bitbucket.log"
+alias baminst="cd /app/atlassian/bamboo"
+alias bamhome="cd /app/atlassian/bamboo-home"
+alias bamlog="tail -f /app/atlassian/bamboo-home/logs/atlassian-bamboo.log"
+
+source ~/.bashrc
+
+//--------
+■1. PostgreSQL 패키지 버전 확인
+# yum info postgresql-server
+
+2. PostgreSQL 리파지토리 추가
+# yum -y install https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+
+3. 사용 가능한 리포지토리 확인
+# yum repolist -y
+
+4. PostgreSQL 15 설치
+1)리포지토리 추가 후 시스템 업데이트 및 재부팅
+# yum -y update && reboot now
+
+***update중 에러 발생 시 다른 PostgreSQL 버전 저장소 비활성화 (필수)
+vi /etc/yum.repos.d/pgdg-redhat-repo.repo
+([pgdg15]만 활성화, 나머지는 비활성화)
+[pgdg15]
+name=PostgreSQL 15 for RHEL / Rocky / AlmaLinux 9 - x86_64
+baseurl=https://download.postgresql.org/pub/repos/yum/15/redhat/rhel-9-x86_64
+enabled=1  # <--- 이 부분을 1로 변경합니다.
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
+
+
+2)PostgreSQL 서버/클라이언트 설치 (15버전)
+# yum install -y postgresql15-server
+
+3)PostgreSQL 15 초기화
+# /usr/pgsql-15/bin/postgresql-15-setup initdb
+
+4)데이터베이스 서비스 시작/활성화
+# systemctl enable postgresql-15 && systemctl start postgresql-15
+# systemctl status postgresql-15
+
+5)외부에서 DBMS 접근 허용 설정
+# vi /var/lib/pgsql/15/data/postgresql.conf
+
+ 59 listen_addresses = '*'       # Config Add
+ 65 max_connections = 300        # config mod
+
+6)클라이언트 접속 인증 방법 변경
+# vi /var/lib/pgsql/15/data/pg_hba.conf
+
+변경전:
+   85 local   all             all                                     peer
+   87 host    all             all             127.0.0.1/32            scram-sha-256     # IPv4
+   89 host    all             all             ::1/128                 scram-sha-256     # IPv6
+
+변경후:	 
+   85 local   all             all                                     md5    # trust
+   86 # IPv4 local connections:
+   87 host    all             all             0.0.0.0/0               md5
+   88 # IPv6 local connections:
+   89 host    all             all             ::1/128                 md5
+
+7)postgres 사용자 암호 설정   - 실 운영서버일 경우 설정
+# su - postgres
+-bash-4.2$ psql
+-bash-4.2$ psql
+psql (15.13)
+Type "help" for help.
+
+postgres=# \password postgres
+Enter new password:
+Enter it again:
+postgres-# \q
+
+  -- OR --
+bash-4.2$ psql -c "alter user postgres with password '패스워드'"
+
+8) PostgreSQL 서비스 재시작
+# systemctl restart postgresql-15
+
+9) 방화벽 오픈 - 5432 Port
+# firewall-cmd --zone=public --permanent --add-port=5432/tcp && firewall-cmd --reload
+
+■ Atlassian Product 데이터 생성
+
+1)JIRA Software 
+postgres=# CREATE DATABASE jiradb WITH ENCODING 'UNICODE' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;
+postgres=# create user jirauser with password 'jirapass';
+postgres=# GRANT ALL PRIVILEGES ON DATABASE jiradb TO jirauser;
+ALTER DATABASE jiradb OWNER TO jirauser;
+
+2)Confluence (Crowd, Bamboo 동일)
+postgres=# CREATE DATABASE confdb WITH ENCODING 'UNICODE';
+postgres=# CREATE USER confuser PASSWORD 'confpass';
+postgres=# GRANT ALL PRIVILEGES ON DATABASE confdb to confuser;
+ALTER DATABASE confdb OWNER TO confuser;
+
+3)Bitbucket
+CREATE ROLE gituser WITH LOGIN PASSWORD 'gitpass' VALID UNTIL 'infinity';
+CREATE DATABASE bitbucketdb WITH ENCODING='UTF8' OWNER=gituser CONNECTION LIMIT=-1;
+GRANT ALL PRIVILEGES ON DATABASE bitbucketdb TO gituser;
+ALTER DATABASE bitbucketdb OWNER TO gituser;
+
+Bamboo
+CREATE DATABASE cicddb WITH ENCODING 'UNICODE';
+CREATE USER cicduser PASSWORD 'cicdpass';
+GRANT ALL PRIVILEGES ON DATABASE cicddb to cicduser;
+ALTER DATABASE cicddb OWNER TO cicduser;
+
+
+■ Bitbucket 설치
+
+1. 방화벽 오픈
+7990 : 빗버킷 포트
+7999 : ssh 포트
+
+# firewall-cmd --zone=public --permanent --add-port=7990/tcp
+# firewall-cmd --zone=public --permanent --add-port=7999/tcp
+# firewall-cmd --reload
+# firewall-cmd --zone=public --list-all
+
+2. 홈디렉토리 생성 및 설정
+$ vi <bitbucket installation-directory>/bin/set-bitbucket-home.sh
+
+	  if [ -z "$BITBUCKET_HOME" ]; then
+      BITBUCKET_HOME="/app/atlassian/bitbucket-home"
+	  
+3._start_webapp.sh 설정
+1) File 인코딩 설정
+$ cd /app/atlassian/bitbucket/bin
+$ vi _start-webapp.sh
+
+JVM_SUPPORT_RECOMMENDED_ARGS="-Dfile.encoding=UTF-8"
+	
+2) umask 주석 제거
+
+umask 0027   
+	
+3) 메모리 설정
+
+JVM_MINIMUM_MEMORY=4g
+JVM_MAXIMUM_MEMORY=4g
+
+4. OS커널 환경 설정
+# vi /etc/security/limits.conf
+
+atlassian hard nofile 65536
+atlassian soft nofile 65536
+atlassian hard nproc 65536
+atlassian soft nproc 65536
+
+soft 설정 확인
+# su - atlassian
+$ ulimit -Sa
+
+Hard 설정 확인
+# su - atlassian
+$ ulimit -Ha
+
+
+■ Bamboo 설치
+
+1. 방화벽 오픈
+8085 : 밤부 포트
+54663 : 에이전트 포트
+
+# firewall-cmd --zone=public --permanent --add-port=8085/tcp
+# firewall-cmd --zone=public --permanent --add-port=54663/tcp
+# firewall-cmd --reload
+# firewall-cmd --zone=public --list-all
+
+2. home폴더 설정
+Home 폴더 위치 지정
+$ vi /app/atlassian/bamboo/atlassian-bamboo/WEB-INF/classes/bamboo-init.properties
+
+3. setenv.sh 설정
+메모리 설정
+
+$ /app/atlassian/bamboo/bin
+$ vi setenv.sh
+
+${JVM_MINIMUM_MEMORY:=8g}
+${JVM_MAXIMUM_MEMORY:=8g}
+
+
+인코딩 설정
+${JVM_SUPPORT_RECOMMENDED_ARGS:="-Dfile.encoding=UTF-8"}
+
+
+
